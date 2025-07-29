@@ -1,130 +1,100 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from aiogram.filters import StateFilter
-from typing import Optional
 
+from ..states.user_states import UserStates
+from ..keyboards.inline_keyboards import get_main_menu_keyboard
 from ...services.llm_service import llm_service
-from ...services.recommendation_service import recommendation_service
 from ...data.json_storage import storage
 from ...utils.logger import logger
-from ..keyboards.inline_keyboards import create_back_keyboard
-from ..states.user_states import QuestionState
 
 router = Router()
 
-@router.callback_query(F.data == "ask_question")
-async def ask_question_handler(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    
+@router.callback_query(F.data == "qa_mode")
+async def enter_qa_mode(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
-        "Задайте ваш вопрос о программах магистратуры ИТМО по ИИ:",
-        reply_markup=create_back_keyboard()
+        "Режим вопросов и ответов активирован!\n\n"
+        "Задайте любой вопрос об обучении в ИТМО, магистерских программах, "
+        "выборочных дисциплинах или карьерных возможностях.\n\n"
+        "Для выхода из режима нажмите кнопку 'Назад' или используйте /start"
     )
-    
-    await state.set_state(QuestionState.waiting_for_question)
+    await state.set_state(UserStates.QA_MODE)
+    await callback.answer()
 
-@router.message(StateFilter(QuestionState.waiting_for_question))
-async def process_question(message: Message, state: FSMContext):
+@router.message(UserStates.QA_MODE)
+async def handle_question(message: Message, state: FSMContext):
+    user_id = str(message.from_user.id)
     question = message.text.strip()
     
     if not question:
-        await message.reply(
-            "Пожалуйста, задайте вопрос текстом.",
-            reply_markup=create_back_keyboard()
-        )
+        await message.answer("Пожалуйста, задайте вопрос.")
         return
     
-    await message.reply(
-        "Обрабатываю ваш вопрос...",
-        reply_markup=None
-    )
+    if question.lower() in ['/start', 'назад', 'выход', 'стоп']:
+        await message.answer(
+            "Выхожу из режима Q&A.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        await state.set_state(UserStates.MAIN_MENU)
+        return
+    
+    await message.answer("Обрабатываю ваш вопрос... Пожалуйста, подождите.")
     
     try:
-        # Получаем контекст о программах
-        programs = await recommendation_service._get_programs()
-        context = recommendation_service._format_programs_data(programs) if programs else ""
+        # Загружаем профиль пользователя для контекста
+        user_profile = await storage.load_user_profile(user_id)
         
         # Генерируем ответ с помощью LLM
-        answer = await llm_service.answer_question(question, context)
+        answer = await llm_service.answer_question(question, user_profile)
         
         if answer:
-            await message.reply(
-                f"Ответ на ваш вопрос:\n\n{answer}",
-                reply_markup=create_back_keyboard()
-            )
-            
-            logger.info(
-                "Question answered",
-                user_id=message.from_user.id,
-                question_length=len(question),
-                answer_length=len(answer)
-            )
+            # Разбиваем длинный ответ на части, если необходимо
+            if len(answer) > 4000:
+                parts = [answer[i:i+4000] for i in range(0, len(answer), 4000)]
+                
+                for i, part in enumerate(parts):
+                    if i == 0:
+                        await message.answer(f"Ответ (часть {i+1}):\n\n{part}")
+                    else:
+                        await message.answer(f"Часть {i+1}:\n\n{part}")
+                
+                await message.answer(
+                    "Есть еще вопросы? Продолжайте задавать или нажмите кнопку для возврата в главное меню.",
+                    reply_markup=get_main_menu_keyboard()
+                )
+            else:
+                await message.answer(
+                    f"{answer}\n\n"
+                    "Есть еще вопросы? Продолжайте задавать или нажмите кнопку для возврата в главное меню.",
+                    reply_markup=get_main_menu_keyboard()
+                )
         else:
-            # Fallback ответ если LLM недоступен
-            fallback_answer = await _generate_fallback_answer(question, programs)
-            await message.reply(
-                fallback_answer,
-                reply_markup=create_back_keyboard()
+            await message.answer(
+                "К сожалению, не удалось сгенерировать ответ на ваш вопрос. "
+                "Попробуйте переформулировать вопрос или обратитесь к консультанту.",
+                reply_markup=get_main_menu_keyboard()
             )
-            
+        
+        logger.info("Question answered", user_id=user_id, question_length=len(question))
+        
     except Exception as e:
-        logger.error("Failed to process question", user_id=message.from_user.id, error=str(e))
-        await message.reply(
-            "Произошла ошибка при обработке вопроса. Попробуйте позже или переформулируйте вопрос.",
-            reply_markup=create_back_keyboard()
+        logger.error("Failed to answer question", user_id=user_id, error=str(e))
+        await message.answer(
+            "Произошла ошибка при обработке вопроса. Попробуйте позже.",
+            reply_markup=get_main_menu_keyboard()
         )
-    
-    await state.clear()
 
-async def _generate_fallback_answer(question: str, programs) -> str:
-    question_lower = question.lower()
-    
-    # Простые паттерны для fallback ответов
-    if any(word in question_lower for word in ["сколько", "длительность", "семестр"]):
-        return """
-        Магистерские программы ИТМО по ИИ рассчитаны на 2 года (4 семестра) обучения.
-        Общая продолжительность: 120 зачетных единиц (кредитов).
-        """
-    
-    elif any(word in question_lower for word in ["курс", "предмет", "дисциплина"]):
-        if programs:
-            total_courses = sum(len(p.courses) for p in programs)
-            return f"""
-            В программах магистратуры представлено множество курсов:
-            - Общее количество дисциплин: {total_courses}
-            - Включают обязательные и выборочные курсы
-            - Покрывают все аспекты искусственного интеллекта
-            """
-        else:
-            return "Программы включают разнообразные курсы по искусственному интеллекту, машинному обучению и смежным областям."
-    
-    elif any(word in question_lower for word in ["поступление", "требования", "документы"]):
-        return """
-        Для поступления в магистратуру ИТМО по ИИ обычно требуется:
-        - Диплом бакалавра (или специалиста)
-        - Результаты вступительных испытаний
-        - Портфолио работ (для некоторых программ)
-        
-        Подробные требования уточняйте на официальном сайте ИТМО.
-        """
-    
-    elif any(word in question_lower for word in ["стоимость", "цена", "оплата"]):
-        return """
-        Информация о стоимости обучения:
-        - Доступны бюджетные и платные места
-        - Стоимость варьируется в зависимости от программы
-        - Возможны различные формы финансовой поддержки
-        
-        Актуальные цены смотрите на сайте ИТМО.
-        """
-    
-    else:
-        return """
-        Ваш вопрос принят. К сожалению, сейчас не могу дать детальный ответ.
-        
-        Рекомендую:
-        - Посетить официальный сайт ИТМО
-        - Обратиться в приемную комиссию
-        - Использовать другие разделы бота для получения информации о программах
-        """ 
+@router.callback_query(F.data == "back_to_qa", UserStates.QA_MODE)
+async def back_to_qa(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "Режим вопросов и ответов.\n\n"
+        "Задайте любой вопрос об обучении в ИТМО!"
+    )
+    await callback.answer()
+
+@router.message(UserStates.QA_MODE, F.content_type.in_(['photo', 'document', 'video', 'audio', 'voice']))
+async def handle_non_text_qa(message: Message):
+    await message.answer(
+        "В режиме Q&A я могу отвечать только на текстовые вопросы. "
+        "Пожалуйста, отправьте ваш вопрос текстом."
+    ) 

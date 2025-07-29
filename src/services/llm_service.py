@@ -74,17 +74,30 @@ class OllamaService:
         
         return await self.generate_response(prompt)
     
-    async def answer_question(self, question: str, context: str) -> Optional[str]:
+    async def answer_question(self, question: str, user_profile=None) -> Optional[str]:
+        from ..data.models import UserProfile
+        
+        context_info = ""
+        if user_profile and isinstance(user_profile, UserProfile):
+            context_info = f"""
+            Профиль пользователя:
+            - Образование: {user_profile.background or 'Не указано'}
+            - Интересы: {', '.join(user_profile.interests) if user_profile.interests else 'Не указаны'}
+            - Цели: {', '.join(user_profile.goals) if user_profile.goals else 'Не указаны'}
+            """
+        
         prompt = f"""
         Ты - помощник абитуриента магистратуры ИТМО по направлениям ИИ.
         
-        Контекст (информация о программах):
-        {context}
+        {context_info}
         
         Вопрос пользователя: {question}
         
-        Отвечай только на вопросы, связанные с обучением в магистратуре ИТМО по ИИ.
+        Отвечай только на вопросы, связанные с обучением в магистратуре ИТМО по ИИ, 
+        магистерскими программами, выборочными дисциплинами и карьерными возможностями.
         Если вопрос не связан с темой, вежливо перенаправь разговор к образовательным программам.
+        
+        Если доступен профиль пользователя, учитывай его интересы и цели при формировании ответа.
         
         Ответ:
         """
