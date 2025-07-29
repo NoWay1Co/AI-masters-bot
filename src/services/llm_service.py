@@ -8,10 +8,16 @@ class OllamaService:
     def __init__(self):
         self.base_url = settings.OLLAMA_BASE_URL
         self.model = settings.OLLAMA_MODEL
-        self.timeout = 10.0  # Уменьшаем для быстрого fallback
+        self.timeout = 15.0  # Увеличиваем таймаут для более стабильной работы
+        self._available_models = []
     
     async def generate_response(self, prompt: str, context: Optional[str] = None) -> Optional[str]:
         try:
+            # Проверяем доступность модели и автоматически выбираем доступную
+            if not await self._ensure_model_available():
+                logger.warning("No suitable model available for generation")
+                return None
+                
             full_prompt = self._build_prompt(prompt, context)
             
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -24,7 +30,8 @@ class OllamaService:
                         "options": {
                             "temperature": 0.7,
                             "top_p": 0.9,
-                            "max_tokens": 500
+                            "max_tokens": 1500,  # Увеличиваем для более подробных ответов
+                            "stop": ["Human:", "Assistant:", "User:"]
                         }
                     }
                 )
@@ -33,14 +40,17 @@ class OllamaService:
                 result = response.json()
                 generated_text = result.get("response", "").strip()
                 
-                logger.info(
-                    "LLM response generated",
-                    model=self.model,
-                    prompt_length=len(prompt),
-                    response_length=len(generated_text)
-                )
-                
-                return generated_text
+                if generated_text:
+                    logger.info(
+                        "LLM response generated successfully",
+                        model=self.model,
+                        prompt_length=len(prompt),
+                        response_length=len(generated_text)
+                    )
+                    return generated_text
+                else:
+                    logger.warning("LLM returned empty response")
+                    return None
         
         except httpx.TimeoutException:
             logger.error("LLM request timeout", timeout=self.timeout)
@@ -83,20 +93,39 @@ class OllamaService:
             """
         
         prompt = f"""
-        Ты - консультант по магистерским программам ИТМО в области искусственного интеллекта.
-        
+        Ты - экспертный консультант по магистерским программам ИТМО в области искусственного интеллекта. У тебя глубокие знания в области ИИ, машинного обучения и образовательных программ.
+
         {context_info}
         
         Вопрос пользователя: {question}
         
-        Задачи:
-        1. Отвечай только на вопросы о магистерских программах ИТМО по ИИ, курсах, поступлении и обучении
-        2. Используй предоставленную информацию о программах для точных ответов
-        3. Если вопрос не связан с темой, вежливо перенаправь к образовательным программам
-        4. Давай структурированные и информативные ответы
-        5. Если информации недостаточно, рекомендуй обратиться к приемной комиссии
+        ВАЖНЫЕ ТРЕБОВАНИЯ К ОТВЕТУ:
         
-        Ответ должен быть полезным, точным и не превышать 500 слов.
+        🎯 ЦЕЛЬ: Дать максимально полезный, подробный и практический ответ
+        
+        📋 СТРУКТУРА ОТВЕТА:
+        1. Основной ответ (подробно, с конкретными примерами)
+        2. Дополнительная полезная информация
+        3. Практические рекомендации (если применимо)
+        4. Ссылки на программы/курсы (если релевантно)
+        
+        📝 СТИЛЬ:
+        - Используй структурированный формат с иконками
+        - Приводи конкретные примеры и цифры
+        - Будь практичным и действенным
+        - Отвечай развернуто (300-800 слов)
+        - Используй bullet points для лучшей читаемости
+        
+        🚫 ОГРАНИЧЕНИЯ:
+        - Отвечай ТОЛЬКО на вопросы о магистерских программах ИТМО по ИИ
+        - Используй только предоставленную информацию + общие знания об ИИ-образовании
+        - Если информации недостаточно, честно скажи об этом и предложи альтернативы
+        
+        💡 ДОПОЛНИТЕЛЬНО:
+        - Если вопрос о карьере - расскажи о возможностях после окончания
+        - Если о курсах - опиши практическую ценность
+        - Если о поступлении - дай пошаговый план действий
+        - Всегда добавляй мотивирующий элемент в конце
         
         Ответ:
         """
@@ -108,6 +137,49 @@ class OllamaService:
             return f"Контекст: {context}\n\nВопрос: {prompt}"
         return prompt
     
+    async def _ensure_model_available(self) -> bool:
+        """Проверяет доступность модели и автоматически выбирает подходящую"""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{self.base_url}/api/tags")
+                response.raise_for_status()
+                
+                models = response.json().get("models", [])
+                self._available_models = [model["name"] for model in models]
+                
+                # Проверяем, доступна ли настроенная модель
+                if self.model in self._available_models:
+                    return True
+                
+                # Пытаемся найти подходящую модель
+                preferred_models = [
+                    "llama3:latest", "llama3", "llama2:latest", "llama2",
+                    "codellama:latest", "codellama", "mistral:latest", "mistral"
+                ]
+                
+                for preferred in preferred_models:
+                    if preferred in self._available_models:
+                        old_model = self.model
+                        self.model = preferred
+                        logger.info(
+                            "Auto-selected available model",
+                            old_model=old_model,
+                            new_model=self.model,
+                            available_models=self._available_models
+                        )
+                        return True
+                
+                logger.warning(
+                    "No suitable model found",
+                    configured_model=self.model,
+                    available_models=self._available_models
+                )
+                return False
+                
+        except Exception as e:
+            logger.error("Failed to check model availability", error=str(e))
+            return False
+
     async def check_connection(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -123,7 +195,8 @@ class OllamaService:
                         model=self.model,
                         available_models=available_models
                     )
-                    return False
+                    # Пытаемся автоматически выбрать доступную модель
+                    return await self._ensure_model_available()
                 
                 logger.info("Ollama connection successful", model=self.model)
                 return True

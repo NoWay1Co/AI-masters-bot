@@ -11,11 +11,31 @@ class Course(BaseModel):
     id: str
     name: str
     credits: int
+    hours: int = 0  # Добавляем часы
     semester: int
     is_elective: bool
+    block: Optional[str] = None  # Блок (Модули, Практики, ГИА и т.д.)
+    category: Optional[str] = None  # Категория дисциплины
     prerequisites: List[str] = []
     description: Optional[str] = None
-    category: Optional[str] = None
+
+class ProgramDetails(BaseModel):
+    """Дополнительная информация о программе со страницы"""
+    form_of_study: Optional[str] = None  # Форма обучения
+    duration: Optional[str] = None  # Длительность
+    language: Optional[str] = None  # Язык обучения
+    cost_per_year: Optional[str] = None  # Стоимость контрактного обучения (год)
+    dormitory: Optional[str] = None  # Общежитие
+    military_center: Optional[str] = None  # Военный учебный центр
+    accreditation: Optional[str] = None  # Гос. аккредитация
+    additional_opportunities: Optional[str] = None  # Дополнительные возможности
+    program_manager: Optional[str] = None  # Менеджер программы
+    manager_contacts: Optional[str] = None  # Контакты менеджера
+    study_directions: Optional[str] = None  # Направления подготовки
+    about_program: Optional[str] = None  # О программе
+    partners: Optional[str] = None  # Партнеры программы
+    team: Optional[str] = None  # Команда образовательной программы
+    scholarships: Optional[str] = None  # Стипендии
 
 class Program(BaseModel):
     id: str
@@ -26,6 +46,7 @@ class Program(BaseModel):
     total_credits: int
     duration_semesters: int
     description: Optional[str] = None
+    details: Optional[ProgramDetails] = None  # Дополнительная информация
     parsed_at: datetime
 
 class UserProfile(BaseModel):

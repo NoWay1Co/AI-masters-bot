@@ -185,20 +185,29 @@ async def skip_profile(callback: CallbackQuery, state: FSMContext):
     user_id = str(callback.from_user.id)
     username = callback.from_user.username
     
+    # Проверяем есть ли уже данные в состоянии или существующий профиль
+    data = await state.get_data()
+    existing_profile = await storage.load_user_profile(user_id)
+    
+    # Используем существующие данные если они есть
+    background = data.get("background", "") or (existing_profile.background if existing_profile else "")
+    interests = data.get("interests", []) or (existing_profile.interests if existing_profile else [])
+    goals = data.get("goals", []) or (existing_profile.goals if existing_profile else [])
+    
     user_profile = UserProfile(
         user_id=user_id,
         username=username,
-        background="",
-        interests=[],
-        goals=[],
-        created_at=datetime.now(),
+        background=background,
+        interests=interests,
+        goals=goals,
+        created_at=existing_profile.created_at if existing_profile else datetime.now(),
         updated_at=datetime.now()
     )
     
     await storage.save_user_profile(user_profile)
     
     await callback.message.edit_text(
-        "Профиль создан с минимальными данными. Вы можете дополнить его позже.",
+        "Профиль сохранен! Вы можете дополнить его позже.",
         reply_markup=get_main_menu_keyboard()
     )
     

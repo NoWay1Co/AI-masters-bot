@@ -124,25 +124,48 @@ def get_goals_keyboard() -> InlineKeyboardMarkup:
     builder.adjust(2)
     return builder.as_markup()
 
-def get_courses_keyboard(courses: List[Course]) -> InlineKeyboardMarkup:
+def get_courses_keyboard(courses: List[Course], page: int = 0, program_id: str = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
-    for course in courses[:10]:  # Показываем первые 10 курсов
+    # Пагинация - по 5 курсов на страницу
+    courses_per_page = 5
+    start_idx = page * courses_per_page
+    end_idx = start_idx + courses_per_page
+    page_courses = courses[start_idx:end_idx]
+    
+    for course in page_courses:
+        # Показываем тип курса в названии
+        course_type = "Обяз." if not course.is_elective else "Выбор."
         builder.add(InlineKeyboardButton(
-            text=f"{course.name} ({course.credits} кр.)",
+            text=f"{course_type} {course.name} ({course.credits} кр., сем. {course.semester})",
             callback_data=f"course_{course.id}"
         ))
     
+    # Навигация
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="◀️ Пред.", callback_data=f"courses_page_{page-1}_{program_id}"))
+    if end_idx < len(courses):
+        nav_buttons.append(InlineKeyboardButton(text="След. ▶️", callback_data=f"courses_page_{page+1}_{program_id}"))
+    
+    if nav_buttons:
+        builder.row(*nav_buttons)
+    
+    # Дополнительные кнопки
     builder.add(InlineKeyboardButton(
-        text="Экспортировать список",
-        callback_data="export_courses"
+        text="📥 Экспортировать программу",
+        callback_data=f"export_program_{program_id}"
     ))
     builder.add(InlineKeyboardButton(
-        text="Назад",
+        text="Сравнить с другой программой",
+        callback_data="compare_programs"
+    ))
+    builder.add(InlineKeyboardButton(
+        text="Главное меню",
         callback_data="back_to_main"
     ))
     
-    builder.adjust(1)
+    builder.adjust(1, 2, 1, 1, 1)
     return builder.as_markup()
 
 def get_export_keyboard() -> InlineKeyboardMarkup:
@@ -177,4 +200,15 @@ def get_confirmation_keyboard() -> InlineKeyboardMarkup:
     ))
     
     builder.adjust(2)
+    return builder.as_markup()
+
+def get_menu_button_keyboard() -> InlineKeyboardMarkup:
+    """Создает простую клавиатуру с одной кнопкой 'Меню'"""
+    builder = InlineKeyboardBuilder()
+    
+    builder.add(InlineKeyboardButton(
+        text="📱 Меню",
+        callback_data="back_to_main"
+    ))
+    
     return builder.as_markup() 
