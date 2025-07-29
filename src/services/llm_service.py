@@ -8,7 +8,7 @@ class OllamaService:
     def __init__(self):
         self.base_url = settings.OLLAMA_BASE_URL
         self.model = settings.OLLAMA_MODEL
-        self.timeout = 60.0  # Таймаут для стабильной работы
+        self.timeout = 30.0  # Таймаут для стабильной работы
         self._available_models = []
     
     async def generate_response(self, prompt: str, context: Optional[str] = None) -> Optional[str]:
