@@ -1,2 +1,78 @@
-# AI-masters-bot
-Чат-бот, который в диалоговом режиме помогает абитуриенту разобраться, какая из двух магистерских программ ему подходит и как наилучшим образом спланировать учёбу, исходя из учебных планов, загруженных на страницах магистратур под запрос абитуриента
+# AI Masters Bot - Чат-бот для ИТМО Магистратура
+
+Телеграм-бот для помощи абитуриентам в выборе магистерских программ ИТМО.
+
+## Требования
+
+- Python 3.11+
+- Telegram Bot Token
+- Ollama (опционально, для LLM функций)
+
+## Установка
+
+1. Клонируйте репозиторий:
+```bash
+git clone <repository-url>
+cd AI-masters-bot
+```
+
+2. Создайте виртуальное окружение:
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# или
+venv\Scripts\activate     # Windows
+```
+
+3. Установите зависимости:
+```bash
+pip install -r requirements.txt
+```
+
+4. Создайте файл `.env` на основе `env.example`:
+```bash
+cp env.example .env
+```
+
+5. Заполните переменные окружения в `.env`:
+```
+TELEGRAM_TOKEN=your_telegram_bot_token_here
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama2
+DATA_DIR=data
+LOG_LEVEL=INFO
+```
+
+## Запуск
+
+```bash
+python run.py
+```
+
+## Структура проекта
+
+```
+ai_masters_bot/
+├── src/                 # Исходный код
+│   ├── bot/            # Telegram бот
+│   ├── services/       # Бизнес логика
+│   ├── data/           # Модели данных
+│   └── utils/          # Утилиты
+├── data/               # Данные приложения
+├── tests/              # Тесты
+└── requirements.txt    # Зависимости
+```
+
+## Тестирование
+
+```bash
+pytest
+```
+
+## Разработка
+
+Проект следует принципам:
+- Чистый код без эмодзи
+- Type hints
+- Минимальные комментарии
+- PEP 8
