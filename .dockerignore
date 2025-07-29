@@ -1,0 +1,60 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.Python
+**/env
+**/venv
+**/.venv
+**/pip-log.txt
+**/pip-delete-this-directory.txt
+**/.tox
+**/.coverage
+**/.coverage.*
+**/.cache
+**/nosetests.xml
+**/coverage.xml
+**/*.cover
+**/*.log
+**/.git
+**/.mypy_cache
+**/.pytest_cache
+**/.hypothesis
+
+# Виртуальное окружение
+venv/
+.venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Временные файлы
+*.tmp
+*.temp
+
+# Логи
+logs/
+*.log
+
+# Тестовые файлы и покрытие
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Документация (будет скопирована отдельно если нужно)
+*.md
+!README.md
+
+# Docker файлы
+Dockerfile
+docker-compose.yml
+.dockerignore 
