@@ -6,7 +6,7 @@
 
 - Python 3.11+
 - Telegram Bot Token
-- Ollama (опционально, для LLM функций)
+- Ollama
 
 ## Установка
 
@@ -29,16 +29,11 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-4. Создайте файл `.env` на основе `env.example`:
-```bash
-cp env.example .env
-```
-
-5. Заполните переменные окружения в `.env`:
+4. Заполните переменные окружения в `.env`:
 ```
 TELEGRAM_TOKEN=your_telegram_bot_token_here
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama2
+OLLAMA_MODEL=llama3
 DATA_DIR=data
 LOG_LEVEL=INFO
 ```
@@ -68,11 +63,3 @@ ai_masters_bot/
 ```bash
 pytest
 ```
-
-## Разработка
-
-Проект следует принципам:
-- Чистый код без эмодзи
-- Type hints
-- Минимальные комментарии
-- PEP 8
