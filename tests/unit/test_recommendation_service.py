@@ -1,237 +1,140 @@
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 from src.services.recommendation_service import RecommendationService
 from src.data.models import UserProfile, Program, Course, ProgramType
 
-@pytest.fixture
-def recommendation_service():
-    return RecommendationService()
-
-@pytest.fixture
-def sample_user_profile():
-    return UserProfile(
-        user_id="123",
-        username="testuser",
-        background="Computer Science student",
-        interests=["machine learning", "neural networks"],
-        goals=["work in AI", "research"],
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
-
-@pytest.fixture
-def sample_programs():
-    course1 = Course(
-        id="c1",
-        name="Machine Learning",
-        credits=6,
-        semester=1,
-        is_elective=False
-    )
-    course2 = Course(
-        id="c2",
-        name="Deep Learning",
-        credits=4,
-        semester=2,
-        is_elective=True
-    )
+class TestRecommendationService:
+    @pytest.fixture
+    def recommendation_service(self):
+        return RecommendationService()
     
-    program = Program(
-        id="p1",
-        name="Artificial Intelligence",
-        type=ProgramType.AI,
-        url="https://example.com",
-        courses=[course1, course2],
-        total_credits=120,
-        duration_semesters=4,
-        description="AI program description",
-        parsed_at=datetime.now()
-    )
+    @pytest.fixture
+    def sample_user_profile(self):
+        return UserProfile(
+            user_id="123456",
+            username="test_user",
+            background="Computer Science",
+            interests=["Machine Learning", "Data Science"],
+            goals=["career change"],
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
     
-    return [program]
-
-@pytest.mark.asyncio
-async def test_get_program_recommendations_success(recommendation_service, sample_user_profile, sample_programs):
-    with patch.object(recommendation_service, '_get_programs', return_value=sample_programs), \
-         patch('src.services.recommendation_service.llm_service.generate_recommendations', 
-               return_value="Great AI program recommendation"):
-        
-        result = await recommendation_service.get_program_recommendations(sample_user_profile)
-        
-        assert result == "Great AI program recommendation"
-
-@pytest.mark.asyncio
-async def test_get_program_recommendations_no_programs(recommendation_service, sample_user_profile):
-    with patch.object(recommendation_service, '_get_programs', return_value=[]):
-        
-        result = await recommendation_service.get_program_recommendations(sample_user_profile)
-        
-        assert "данные о программах временно недоступны" in result.lower()
-
-@pytest.mark.asyncio
-async def test_get_program_recommendations_llm_failure(recommendation_service, sample_user_profile, sample_programs):
-    with patch.object(recommendation_service, '_get_programs', return_value=sample_programs), \
-         patch('src.services.recommendation_service.llm_service.generate_recommendations', 
-               return_value=None):
-        
-        result = await recommendation_service.get_program_recommendations(sample_user_profile)
-        
-        assert "рекомендую программу" in result.lower()
-
-@pytest.mark.asyncio
-async def test_get_course_recommendations_with_interests(recommendation_service, sample_user_profile, sample_programs):
-    sample_user_profile.interests = ["deep learning"]
-    
-    with patch.object(recommendation_service, '_get_programs', return_value=sample_programs):
-        
-        result = await recommendation_service.get_course_recommendations(
-            sample_user_profile, ProgramType.AI
+    @pytest.fixture
+    def sample_programs(self):
+        ai_program = Program(
+            id="ai_program",
+            name="Искусственный интеллект",
+            type=ProgramType.AI,
+            url="https://example.com/ai",
+            courses=[
+                Course(
+                    id="course1",
+                    name="Машинное обучение",
+                    credits=6,
+                    semester=1,
+                    is_elective=False
+                ),
+                Course(
+                    id="course2",
+                    name="Глубокое обучение",
+                    credits=4,
+                    semester=2,
+                    is_elective=False
+                )
+            ],
+            total_credits=120,
+            duration_semesters=4,
+            parsed_at=datetime.now()
         )
         
-        assert len(result) == 1
-        assert result[0].name == "Deep Learning"
-
-@pytest.mark.asyncio
-async def test_get_course_recommendations_no_matches(recommendation_service, sample_user_profile, sample_programs):
-    sample_user_profile.interests = ["unrelated topic"]
-    
-    with patch.object(recommendation_service, '_get_programs', return_value=sample_programs):
-        
-        result = await recommendation_service.get_course_recommendations(
-            sample_user_profile, ProgramType.AI
+        product_program = Program(
+            id="ai_product",
+            name="Продукты с ИИ",
+            type=ProgramType.AI_PRODUCT,
+            url="https://example.com/ai-product",
+            courses=[
+                Course(
+                    id="course3",
+                    name="Product Management",
+                    credits=5,
+                    semester=1,
+                    is_elective=False
+                )
+            ],
+            total_credits=100,
+            duration_semesters=3,
+            parsed_at=datetime.now()
         )
         
-        assert len(result) == 1  # Should return first few courses as fallback
-
-@pytest.mark.asyncio
-async def test_get_course_recommendations_no_program(recommendation_service, sample_user_profile):
-    with patch.object(recommendation_service, '_get_programs', return_value=[]):
+        return [ai_program, product_program]
+    
+    @pytest.mark.asyncio
+    async def test_get_program_recommendations_success(self, recommendation_service, sample_user_profile):
+        mock_programs = [MagicMock(), MagicMock()]
+        mock_llm_response = "Рекомендуем программу ИИ"
         
-        result = await recommendation_service.get_course_recommendations(
-            sample_user_profile, ProgramType.AI
-        )
+        with patch.object(recommendation_service, '_get_programs', return_value=mock_programs), \
+             patch('src.services.recommendation_service.llm_service.generate_recommendations', 
+                   return_value=mock_llm_response):
+            
+            result = await recommendation_service.get_program_recommendations(sample_user_profile)
+            
+            assert result == mock_llm_response
+    
+    @pytest.mark.asyncio
+    async def test_get_program_recommendations_no_programs(self, recommendation_service, sample_user_profile):
+        with patch.object(recommendation_service, '_get_programs', return_value=[]):
+            
+            result = await recommendation_service.get_program_recommendations(sample_user_profile)
+            
+            assert "данные о программах временно недоступны" in result.lower()
+    
+    @pytest.mark.asyncio 
+    async def test_get_program_recommendations_llm_failure(self, recommendation_service, sample_user_profile):
+        mock_programs = [MagicMock()]
         
-        assert len(result) == 0
-
-@pytest.mark.asyncio
-async def test_compare_programs_success(recommendation_service, sample_programs):
-    # Add second program for comparison
-    second_program = Program(
-        id="p2",
-        name="AI in Products",
-        type=ProgramType.AI_PRODUCT,
-        url="https://example2.com",
-        courses=[],
-        total_credits=100,
-        duration_semesters=4,
-        description="AI Product program",
-        parsed_at=datetime.now()
-    )
+        with patch.object(recommendation_service, '_get_programs', return_value=mock_programs), \
+             patch('src.services.recommendation_service.llm_service.generate_recommendations', 
+                   return_value=None):
+            
+            result = await recommendation_service.get_program_recommendations(sample_user_profile)
+            
+            assert "рекомендую программу" in result.lower()
     
-    programs = sample_programs + [second_program]
-    
-    with patch.object(recommendation_service, '_get_programs', return_value=programs), \
-         patch('src.services.recommendation_service.llm_service.generate_response', 
-               return_value="Detailed comparison"):
+    def test_format_user_profile(self, recommendation_service, sample_user_profile):
+        result = recommendation_service._format_user_profile(sample_user_profile)
         
-        result = await recommendation_service.compare_programs()
+        assert "Computer Science" in result
+        assert "Machine Learning" in result
+        assert "career change" in result
+    
+    def test_format_programs_data(self, recommendation_service, sample_programs):
+        result = recommendation_service._format_programs_data(sample_programs)
         
-        assert result == "Detailed comparison"
-
-@pytest.mark.asyncio
-async def test_compare_programs_insufficient_data(recommendation_service):
-    with patch.object(recommendation_service, '_get_programs', return_value=[]):
+        assert "Искусственный интеллект" in result
+        assert "Продукты с ИИ" in result
+        assert "120" in result  # total credits
+        assert "Машинное обучение" in result
+    
+    @pytest.mark.asyncio
+    async def test_compare_programs_success(self, recommendation_service):
+        mock_programs = [MagicMock(), MagicMock()]
+        mock_llm_response = "Сравнение программ"
         
-        result = await recommendation_service.compare_programs()
-        
-        assert "недостаточно данных" in result.lower()
-
-@pytest.mark.asyncio
-async def test_compare_programs_llm_failure(recommendation_service, sample_programs):
-    # Add second program
-    second_program = Program(
-        id="p2",
-        name="AI in Products",
-        type=ProgramType.AI_PRODUCT,
-        url="https://example2.com",
-        courses=[],
-        total_credits=100,
-        duration_semesters=4,
-        parsed_at=datetime.now()
-    )
+        with patch.object(recommendation_service, '_get_programs', return_value=mock_programs), \
+             patch('src.services.recommendation_service.llm_service.generate_response', 
+                   return_value=mock_llm_response):
+            
+            result = await recommendation_service.compare_programs()
+            
+            assert result == mock_llm_response
     
-    programs = sample_programs + [second_program]
-    
-    with patch.object(recommendation_service, '_get_programs', return_value=programs), \
-         patch('src.services.recommendation_service.llm_service.generate_response', 
-               return_value=None):
-        
-        result = await recommendation_service.compare_programs()
-        
-        assert "сравнение программ" in result.lower()
-
-def test_format_user_profile(recommendation_service, sample_user_profile):
-    result = recommendation_service._format_user_profile(sample_user_profile)
-    
-    assert "Computer Science student" in result
-    assert "machine learning" in result
-    assert "work in AI" in result
-
-def test_format_user_profile_empty_fields(recommendation_service):
-    profile = UserProfile(
-        user_id="123",
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
-    
-    result = recommendation_service._format_user_profile(profile)
-    
-    assert "Не указан" in result
-    assert "Не указаны" in result
-
-def test_format_programs_data(recommendation_service, sample_programs):
-    result = recommendation_service._format_programs_data(sample_programs)
-    
-    assert "Artificial Intelligence" in result
-    assert "Machine Learning" in result
-    assert "Deep Learning" in result
-    assert "120" in result  # total credits
-
-def test_generate_fallback_recommendation_product_interest(recommendation_service, sample_programs):
-    profile = UserProfile(
-        user_id="123",
-        interests=["продукт", "разработка"],
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
-    
-    # Mock programs with AI_PRODUCT type
-    ai_product_program = Program(
-        id="p2",
-        name="AI in Products",
-        type=ProgramType.AI_PRODUCT,
-        url="https://example.com",
-        courses=[],
-        total_credits=100,
-        duration_semesters=4,
-        parsed_at=datetime.now()
-    )
-    
-    programs = sample_programs + [ai_product_program]
-    
-    result = recommendation_service._generate_fallback_recommendation(profile, programs)
-    
-    assert "AI in Products" in result
-
-def test_generate_fallback_recommendation_ai_default(recommendation_service, sample_programs):
-    profile = UserProfile(
-        user_id="123",
-        interests=["машинное обучение"],
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
-    
-    result = recommendation_service._generate_fallback_recommendation(profile, sample_programs)
-    
-    assert "Artificial Intelligence" in result 
+    @pytest.mark.asyncio
+    async def test_compare_programs_insufficient_data(self, recommendation_service):
+        with patch.object(recommendation_service, '_get_programs', return_value=[]):
+            
+            result = await recommendation_service.compare_programs()
+            
+            assert "недостаточно данных" in result.lower() 

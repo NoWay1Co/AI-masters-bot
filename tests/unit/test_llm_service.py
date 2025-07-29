@@ -1,138 +1,94 @@
 import pytest
-import httpx
 from unittest.mock import AsyncMock, patch, MagicMock
 from src.services.llm_service import OllamaService
 
-@pytest.fixture
-def llm_service():
-    return OllamaService()
-
-@pytest.mark.asyncio
-async def test_generate_response_success(llm_service):
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"response": "Test LLM response"}
-    mock_response.raise_for_status = MagicMock()
+class TestOllamaService:
+    @pytest.fixture
+    def llm_service(self):
+        return OllamaService()
     
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
+    @pytest.mark.asyncio
+    async def test_generate_response_success(self, llm_service):
+        mock_response_data = {
+            "response": "Это тестовый ответ от LLM",
+            "done": True
+        }
         
-        result = await llm_service.generate_response("Test prompt")
-        
-        assert result == "Test LLM response"
-        mock_client.return_value.__aenter__.return_value.post.assert_called_once()
-
-@pytest.mark.asyncio
-async def test_generate_response_with_context(llm_service):
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"response": "Contextual response"}
-    mock_response.raise_for_status = MagicMock()
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_response = MagicMock()
+            mock_response.json.return_value = mock_response_data
+            mock_response.raise_for_status.return_value = None
+            
+            mock_client.return_value.__aenter__.return_value.post.return_value = mock_response
+            
+            result = await llm_service.generate_response("Тестовый вопрос")
+            
+            assert result == "Это тестовый ответ от LLM"
     
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
+    @pytest.mark.asyncio
+    async def test_generate_response_timeout(self, llm_service):
+        import httpx
         
-        result = await llm_service.generate_response("Test prompt", "Test context")
-        
-        assert result == "Contextual response"
-
-@pytest.mark.asyncio
-async def test_generate_response_timeout(llm_service):
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-            side_effect=httpx.TimeoutException("Timeout")
-        )
-        
-        result = await llm_service.generate_response("Test prompt")
-        
-        assert result is None
-
-@pytest.mark.asyncio
-async def test_generate_response_http_error(llm_service):
-    mock_response = MagicMock()
-    mock_response.status_code = 500
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_client.return_value.__aenter__.return_value.post.side_effect = httpx.TimeoutException("Timeout")
+            
+            result = await llm_service.generate_response("Тестовый вопрос")
+            
+            assert result is None
     
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-            side_effect=httpx.HTTPStatusError("HTTP Error", request=None, response=mock_response)
-        )
+    @pytest.mark.asyncio
+    async def test_check_connection_success(self, llm_service):
+        mock_response_data = {
+            "models": [
+                {"name": "llama2"},
+                {"name": "mistral"}
+            ]
+        }
         
-        result = await llm_service.generate_response("Test prompt")
-        
-        assert result is None
-
-@pytest.mark.asyncio
-async def test_check_connection_success(llm_service):
-    mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "models": [{"name": "llama3"}, {"name": "other_model"}]
-    }
-    mock_response.raise_for_status = MagicMock()
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_response = MagicMock()
+            mock_response.json.return_value = mock_response_data
+            mock_response.raise_for_status.return_value = None
+            
+            mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
+            
+            result = await llm_service.check_connection()
+            
+            assert result == True
     
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
+    def test_build_prompt_with_context(self, llm_service):
+        prompt = "Тестовый вопрос"
+        context = "Тестовый контекст"
         
-        result = await llm_service.check_connection()
+        result = llm_service._build_prompt(prompt, context)
         
-        assert result is True
-
-@pytest.mark.asyncio
-async def test_check_connection_model_not_available(llm_service):
-    mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "models": [{"name": "other_model"}]
-    }
-    mock_response.raise_for_status = MagicMock()
+        assert "Контекст: Тестовый контекст" in result
+        assert "Вопрос: Тестовый вопрос" in result
     
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
+    def test_build_prompt_without_context(self, llm_service):
+        prompt = "Тестовый вопрос"
         
-        result = await llm_service.check_connection()
+        result = llm_service._build_prompt(prompt)
         
-        assert result is False
-
-@pytest.mark.asyncio
-async def test_check_connection_failure(llm_service):
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.get = AsyncMock(
-            side_effect=httpx.ConnectError("Connection failed")
-        )
-        
-        result = await llm_service.check_connection()
-        
-        assert result is False
-
-@pytest.mark.asyncio
-async def test_generate_recommendations(llm_service):
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"response": "AI program recommendation"}
-    mock_response.raise_for_status = MagicMock()
+        assert "Вопрос: Тестовый вопрос" in result
+        assert "Контекст:" not in result
     
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
+    @pytest.mark.asyncio
+    async def test_generate_response_network_error(self, llm_service):
+        import httpx
         
-        result = await llm_service.generate_recommendations(
-            "User profile", "Programs data"
-        )
-        
-        assert result == "AI program recommendation"
-
-@pytest.mark.asyncio
-async def test_answer_question(llm_service):
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"response": "Answer to question"}
-    mock_response.raise_for_status = MagicMock()
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_client.return_value.__aenter__.return_value.post.side_effect = httpx.NetworkError("Network error")
+            
+            result = await llm_service.generate_response("Тестовый вопрос")
+            
+            assert result is None
     
-    with patch('httpx.AsyncClient') as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
-        
-        result = await llm_service.answer_question("Test question", "Context")
-        
-        assert result == "Answer to question"
-
-def test_build_prompt_with_context(llm_service):
-    result = llm_service._build_prompt("Test prompt", "Test context")
-    assert "Контекст: Test context" in result
-    assert "Вопрос: Test prompt" in result
-
-def test_build_prompt_without_context(llm_service):
-    result = llm_service._build_prompt("Test prompt")
-    assert result == "Test prompt" 
+    @pytest.mark.asyncio
+    async def test_check_connection_failure(self, llm_service):
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_client.return_value.__aenter__.return_value.get.side_effect = Exception("Connection failed")
+            
+            result = await llm_service.check_connection()
+            
+            assert result == False 

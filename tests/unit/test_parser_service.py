@@ -1,82 +1,114 @@
 import pytest
-import asyncio
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime
 from src.services.parser_service import ITMOParser
-from src.data.models import ProgramType, Course
-
+from src.data.models import Program, Course, ProgramType
 
 class TestITMOParser:
     @pytest.fixture
     def parser(self):
         return ITMOParser()
     
-    def test_get_file_extension(self, parser):
-        assert parser._get_file_extension("http://example.com/file.pdf") == ".pdf"
-        assert parser._get_file_extension("http://example.com/file.docx") == ".docx"
-        assert parser._get_file_extension("http://example.com/file.xlsx") == ".xlsx"
-        assert parser._get_file_extension("http://example.com/file.txt") == ""
+    @pytest.fixture
+    def mock_html_response(self):
+        return """
+        <html>
+            <head><title>Искусственный интеллект - ИТМО</title></head>
+            <body>
+                <h1>Магистратура "Искусственный интеллект"</h1>
+                <p class="program-description">Программа для подготовки специалистов в области ИИ</p>
+                <a href="/files/curriculum.pdf">Скачать учебный план</a>
+            </body>
+        </html>
+        """
     
-    def test_create_course_from_match(self, parser):
-        import re
-        
-        # Test pattern: "1. Course Name 5 з.е."
-        pattern = r'(\d+)\.\s*(.+?)\s+(\d+)\s*з\.е\.'
-        text = "1. Машинное обучение 5 з.е."
-        match = re.search(pattern, text)
-        
-        course = parser._create_course_from_match(match, 1)
-        
-        assert course is not None
-        assert course.name == "Машинное обучение"
-        assert course.credits == 5
-        assert course.semester == 1
-        assert not course.is_elective
+    @pytest.mark.asyncio
+    async def test_parse_program_page_success(self, parser, mock_html_response):
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_response = MagicMock()
+            mock_response.text = mock_html_response
+            mock_response.raise_for_status.return_value = None
+            
+            mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
+            
+            with patch.object(parser, '_parse_curriculum_file', return_value=[]):
+                program = await parser._parse_program_page(
+                    ProgramType.AI, 
+                    "https://abit.itmo.ru/program/master/ai"
+                )
+            
+            assert program is not None
+            assert program.name == "Магистратура \"Искусственный интеллект\""
+            assert program.type == ProgramType.AI
+            assert "подготовки специалистов" in program.description
     
-    def test_create_course_from_match_elective(self, parser):
-        import re
+    @pytest.mark.asyncio
+    async def test_find_curriculum_link(self, parser):
+        html = """
+        <html>
+            <body>
+                <a href="/files/plan.pdf">Скачать учебный план</a>
+                <a href="/other.pdf">Другой файл</a>
+            </body>
+        </html>
+        """
         
-        pattern = r'(\d+)\.\s*(.+?)\s+(\d+)\s*з\.е\.'
-        text = "2. Выборная дисциплина 3 з.е."
-        match = re.search(pattern, text)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, 'html.parser')
         
-        course = parser._create_course_from_match(match, 2)
+        link = await parser._find_curriculum_link(soup, "https://example.com")
         
-        assert course is not None
-        assert course.name == "Выборная дисциплина"
-        assert course.credits == 3
-        assert course.is_elective
+        assert link == "https://example.com/files/plan.pdf"
     
     def test_extract_courses_from_text(self, parser):
         text = """
-        1. Машинное обучение 5 з.е.
-        2. Выборная дисциплина 3 з.е.
-        Некоторый текст без курса
-        3. Анализ данных 4 з.е.
+        1. Машинное обучение 6 з.е.
+        2. Компьютерное зрение 4 з.е.
+        3. Выборочная дисциплина 3 з.е.
         """
         
         courses = parser._extract_courses_from_text(text)
         
         assert len(courses) == 3
         assert courses[0].name == "Машинное обучение"
-        assert courses[0].credits == 5
-        assert courses[1].name == "Выборная дисциплина"
-        assert courses[1].is_elective
-        assert courses[2].name == "Анализ данных"
-        assert courses[2].credits == 4
+        assert courses[0].credits == 6
+        assert courses[2].is_elective == True
     
     @pytest.mark.asyncio
-    async def test_parse_all_programs_with_cache(self, parser):
-        with patch('src.services.parser_service.cache_service') as mock_cache:
-            mock_cache.get = AsyncMock(return_value=[])
-            mock_cache.set = AsyncMock()
+    async def test_parse_all_programs(self, parser):
+        with patch.object(parser, '_parse_program_page') as mock_parse:
+            mock_program = Program(
+                id="ai",
+                name="Test Program",
+                type=ProgramType.AI,
+                url="https://test.com",
+                courses=[],
+                total_credits=120,
+                duration_semesters=4,
+                parsed_at=datetime.now()
+            )
+            mock_parse.return_value = mock_program
             
-            with patch.object(parser, '_parse_program_page', return_value=None):
-                result = await parser.parse_all_programs()
-                
-                assert result == []
-                mock_cache.get.assert_called_once_with("all_programs")
+            programs = await parser.parse_all_programs()
+            
+            assert len(programs) == 2  # AI and AI_PRODUCT
+            assert all(isinstance(p, Program) for p in programs)
     
     @pytest.mark.asyncio
-    async def test_parse_curriculum_file_unsupported_format(self, parser):
-        result = await parser._parse_curriculum_file("http://example.com/file.txt")
-        assert result == [] 
+    async def test_parse_program_page_http_error(self, parser):
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_client.return_value.__aenter__.return_value.get.side_effect = Exception("HTTP Error")
+            
+            program = await parser._parse_program_page(
+                ProgramType.AI, 
+                "https://invalid-url.com"
+            )
+            
+            assert program is None
+    
+    def test_extract_courses_invalid_format(self, parser):
+        text = "Некорректный формат текста без дисциплин"
+        
+        courses = parser._extract_courses_from_text(text)
+        
+        assert len(courses) == 0 

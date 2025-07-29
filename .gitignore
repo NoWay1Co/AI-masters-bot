@@ -8,3 +8,4 @@
 /src/bot/states/__pycache__
 /src/bot/middlewares/__pycache__
 /src/bot/keyboards/__pycache__
+/tests/integration/__pycache__
