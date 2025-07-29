@@ -17,6 +17,11 @@ router = Router()
 
 @router.callback_query(F.data == "set_background")
 async def set_background(callback: CallbackQuery, state: FSMContext):
+    # Очистка только поля background из FSM состояния
+    data = await state.get_data()
+    data.pop("background", None)
+    await state.set_data(data)
+    
     await callback.message.edit_text(
         "Расскажите о своем образовании и опыте работы:\n\n"
         "Например: 'Бакалавр информатики, работаю junior разработчиком'"
@@ -47,6 +52,11 @@ async def process_background(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "set_interests")
 async def set_interests(callback: CallbackQuery, state: FSMContext):
+    # Очистка только поля interests из FSM состояния
+    data = await state.get_data()
+    data.pop("interests", None)
+    await state.set_data(data)
+    
     await callback.message.edit_text(
         "Выберите ваши интересы (можно выбрать несколько):",
         reply_markup=get_interests_keyboard()
@@ -67,12 +77,22 @@ async def process_interest(callback: CallbackQuery, state: FSMContext):
     interest_mapping = {
         "ml": "Машинное обучение",
         "cv": "Компьютерное зрение", 
-        "nlp": "Обработка естественного языка",
+        "nlp": "NLP",
         "robotics": "Робототехника",
-        "products": "Разработка продуктов",
-        "data": "Анализ данных",
+        "products": "Продукты",
+        "data": "Данные",
         "research": "Исследования",
-        "startup": "Стартапы"
+        "startup": "Стартапы",
+        "web": "Веб-разработка",
+        "mobile": "Мобильная разработка",
+        "gamedev": "Игровая разработка",
+        "security": "Кибербезопасность",
+        "blockchain": "Блокчейн",
+        "iot": "IoT",
+        "arvr": "AR/VR",
+        "devops": "DevOps",
+        "design": "UI/UX дизайн",
+        "bioinformatics": "Биоинформатика"
     }
     
     interest_name = interest_mapping.get(interest_code, interest_code)
@@ -105,6 +125,11 @@ async def interests_done(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "set_goals")
 async def set_goals(callback: CallbackQuery, state: FSMContext):
+    # Очистка только поля goals из FSM состояния
+    data = await state.get_data()
+    data.pop("goals", None)
+    await state.set_data(data)
+    
     await callback.message.edit_text(
         "Выберите ваши цели (можно выбрать несколько):",
         reply_markup=get_goals_keyboard()
@@ -157,28 +182,30 @@ async def goals_done(callback: CallbackQuery, state: FSMContext):
     username = callback.from_user.username
     
     data = await state.get_data()
+    existing_profile = await storage.load_user_profile(user_id)
     
+    # Использовать только данные из FSM state, не fallback к существующему профилю
     user_profile = UserProfile(
         user_id=user_id,
         username=username,
-        background=data.get("background", ""),
-        interests=data.get("interests", []),
-        goals=data.get("goals", []),
-        created_at=datetime.now(),
+        background=data.get("background", ""),  # Только из FSM state
+        interests=data.get("interests", []),    # Только из FSM state  
+        goals=data.get("goals", []),           # Только из FSM state
+        created_at=existing_profile.created_at if existing_profile else datetime.now(),
         updated_at=datetime.now()
     )
     
     await storage.save_user_profile(user_profile)
     
     await callback.message.edit_text(
-        "Профиль создан! Теперь вы можете получить персональные рекомендации.",
+        "Профиль обновлен! Теперь вы можете получить персональные рекомендации.",
         reply_markup=get_main_menu_keyboard()
     )
     
     await state.set_state(UserStates.MAIN_MENU)
     await callback.answer()
     
-    logger.info("User profile created", user_id=user_id, interests_count=len(user_profile.interests))
+    logger.info("User profile updated", user_id=user_id, interests_count=len(user_profile.interests))
 
 @router.callback_query(F.data == "skip_profile")
 async def skip_profile(callback: CallbackQuery, state: FSMContext):

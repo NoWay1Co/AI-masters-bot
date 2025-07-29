@@ -77,7 +77,17 @@ def get_interests_keyboard() -> InlineKeyboardMarkup:
         ("Продукты", "products"),
         ("Данные", "data"),
         ("Исследования", "research"),
-        ("Стартапы", "startup")
+        ("Стартапы", "startup"),
+        ("Веб-разработка", "web"),
+        ("Мобильная разработка", "mobile"),
+        ("Игровая разработка", "gamedev"),
+        ("Кибербезопасность", "security"),
+        ("Блокчейн", "blockchain"),
+        ("IoT", "iot"),
+        ("AR/VR", "arvr"),
+        ("DevOps", "devops"),
+        ("UI/UX дизайн", "design"),
+        ("Биоинформатика", "bioinformatics")
     ]
     
     for interest_text, interest_code in interests:

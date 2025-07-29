@@ -199,7 +199,7 @@ class RecommendationService:
 > 
 > **Рекомендуемые курсы для изучения:**
 > {recommended_courses}
-"""
+        """
     
     def _generate_fallback_comparison(self, programs: List[Program]) -> str:
         if len(programs) < 2:
