@@ -150,6 +150,26 @@ class RecommendationService:
         
         return comparison_text
     
+    def _get_personalized_courses(self, profile: UserProfile, program: Program) -> str:
+        """Генерирует персональные рекомендации курсов на основе интересов пользователя"""
+        user_interests = [interest.lower() for interest in profile.interests]
+        recommended_courses = []
+        
+        # Находим курсы, соответствующие интересам пользователя
+        for course in program.courses:
+            course_name_lower = course.name.lower()
+            for interest in user_interests:
+                if any(keyword in course_name_lower for keyword in interest.split()):
+                    recommended_courses.append(f"• **{course.name}** ({course.credits} кредитов)")
+                    break
+        
+        if not recommended_courses:
+            # Если точных совпадений нет, рекомендуем выборочные курсы
+            elective_courses = [c for c in program.courses if c.is_elective][:3]
+            recommended_courses = [f"• **{course.name}** ({course.credits} кредитов)" for course in elective_courses]
+        
+        return "\n> ".join(recommended_courses[:5])  # Ограничиваем 5 курсами
+    
     def _generate_fallback_recommendation(self, profile: UserProfile, programs: List[Program]) -> str:
         if not programs:
             return "Данные о программах недоступны."
@@ -166,14 +186,20 @@ class RecommendationService:
                 programs[0]
             )
         
+        # Получаем рекомендуемые курсы на основе интересов пользователя
+        recommended_courses = self._get_personalized_courses(profile, recommended_program)
+        
         return f"""
-        На основе вашего профиля рекомендую программу: {recommended_program.name}
-        
-        Эта программа включает {len(recommended_program.courses)} курсов 
-        и предлагает {len([c for c in recommended_program.courses if c.is_elective])} выборочных дисциплин.
-        
-        Для получения более детальных рекомендаций обратитесь к консультанту.
-        """
+> **Персональная рекомендация для тебя:**
+> 
+> На основе твоего профиля рекомендую программу: **{recommended_program.name}**
+> 
+> Эта программа включает {len(recommended_program.courses)} курсов 
+> и предлагает {len([c for c in recommended_program.courses if c.is_elective])} выборочных дисциплин.
+> 
+> **Рекомендуемые курсы для изучения:**
+> {recommended_courses}
+"""
     
     def _generate_fallback_comparison(self, programs: List[Program]) -> str:
         if len(programs) < 2:
