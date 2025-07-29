@@ -18,9 +18,9 @@ router = Router()
 async def get_recommendations(callback: CallbackQuery, state: FSMContext):
     user_id = str(callback.from_user.id)
     
-    await callback.message.edit_text("Генерирую рекомендации... Пожалуйста, подождите.")
-    
     try:
+        await callback.message.edit_text("Генерирую рекомендации... Пожалуйста, подождите.")
+        
         user_profile = await storage.load_user_profile(user_id)
         
         if not user_profile:
@@ -31,18 +31,17 @@ async def get_recommendations(callback: CallbackQuery, state: FSMContext):
             await callback.answer()
             return
         
+        # Используем fallback рекомендации если LLM недоступна
         recommendation = await recommendation_service.get_program_recommendations(user_profile)
         
-        if recommendation:
-            await callback.message.edit_text(
-                f"Персональные рекомендации:\n\n{recommendation}",
-                reply_markup=get_main_menu_keyboard()
-            )
-        else:
-            await callback.message.edit_text(
-                "К сожалению, не удалось сгенерировать рекомендации. Попробуйте позже.",
-                reply_markup=get_main_menu_keyboard()
-            )
+        if not recommendation:
+            # Fallback рекомендации
+            recommendation = _generate_fallback_recommendations(user_profile)
+        
+        await callback.message.edit_text(
+            f"Персональные рекомендации:\n\n{recommendation}",
+            reply_markup=get_main_menu_keyboard()
+        )
         
         await state.set_state(UserStates.GETTING_RECOMMENDATIONS)
         
@@ -54,6 +53,43 @@ async def get_recommendations(callback: CallbackQuery, state: FSMContext):
         )
     
     await callback.answer()
+
+def _generate_fallback_recommendations(user_profile) -> str:
+    """Fallback рекомендации когда LLM недоступна"""
+    
+    background = user_profile.background.lower() if user_profile.background else ""
+    interests = [interest.lower() for interest in user_profile.interests]
+    goals = [goal.lower() for goal in user_profile.goals]
+    
+    # Анализируем профиль
+    has_tech_background = any(keyword in background for keyword in ['информатик', 'программ', 'it', 'техническ'])
+    interested_in_ml = any(keyword in interest for interest in interests for keyword in ['машинное обучение', 'данные', 'ml'])
+    interested_in_products = any(keyword in interest for interest in interests for keyword in ['продукт', 'стартап', 'бизнес'])
+    wants_career = any(keyword in goal for goal in goals for keyword in ['карьер', 'it'])
+    
+    recommendations = "🎯 Рекомендации на основе вашего профиля:\n\n"
+    
+    if has_tech_background and interested_in_ml:
+        recommendations += "✅ **Искусственный интеллект** - отлично подходит для вашего технического бэкграунда\n"
+        recommendations += "• Курсы: Машинное обучение, Глубокое обучение, Компьютерное зрение\n"
+        recommendations += "• Подходит для развития в ML Engineer, Data Scientist\n\n"
+    
+    if interested_in_products or not has_tech_background:
+        recommendations += "✅ **Управление ИИ-продуктами** - для тех, кто хочет быть на стыке технологий и бизнеса\n"
+        recommendations += "• Курсы: Управление AI-продуктами, Data Science для продуктов, UX/UI\n"
+        recommendations += "• Подходит для развития в Product Manager, AI Product Owner\n\n"
+    
+    if wants_career:
+        recommendations += "💼 **Карьерные возможности:**\n"
+        recommendations += "• Зарплата Middle+ специалистов: 170-300 тыс. рублей\n"
+        recommendations += "• Высокий спрос на AI-экспертов на рынке\n\n"
+    
+    recommendations += "📚 **Рекомендуемые первые шаги:**\n"
+    recommendations += "1. Изучите детали программ в разделе 'Выбрать программу'\n"
+    recommendations += "2. Сравните программы между собой\n"
+    recommendations += "3. Задайте вопросы в режиме Q&A\n"
+    
+    return recommendations
 
 @router.callback_query(F.data == "compare_programs")
 async def compare_programs(callback: CallbackQuery, state: FSMContext):

@@ -26,19 +26,24 @@ async def set_background(callback: CallbackQuery, state: FSMContext):
 
 @router.message(UserStates.COLLECTING_BACKGROUND)
 async def process_background(message: Message, state: FSMContext):
+    user_id = str(message.from_user.id)
     background = message.text.strip()
+    
+    logger.info("Processing background", user_id=user_id, background_length=len(background))
     
     if len(background) < 10:
         await message.answer("Пожалуйста, опишите ваше образование более подробно (минимум 10 символов).")
         return
     
     await state.update_data(background=background)
+    logger.info("Background saved", user_id=user_id)
     
     await message.answer(
         "Спасибо! Теперь выберите ваши интересы:",
         reply_markup=get_interests_keyboard()
     )
     await state.set_state(UserStates.COLLECTING_INTERESTS)
+    logger.info("State changed to COLLECTING_INTERESTS", user_id=user_id)
 
 @router.callback_query(F.data == "set_interests")
 async def set_interests(callback: CallbackQuery, state: FSMContext):
@@ -49,26 +54,47 @@ async def set_interests(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserStates.COLLECTING_INTERESTS)
     await callback.answer()
 
-@router.callback_query(F.data.startswith("interest_"))
+@router.callback_query(F.data.startswith("int_"))
 async def process_interest(callback: CallbackQuery, state: FSMContext):
-    interest_key = callback.data.replace("interest_", "").replace("_", " ").title()
+    interest_code = callback.data.replace("int_", "")
+    
+    # Если это команда "done", обрабатываем отдельно
+    if interest_code == "done":
+        await interests_done(callback, state)
+        return
+    
+    # Мапинг кодов на полные названия
+    interest_mapping = {
+        "ml": "Машинное обучение",
+        "cv": "Компьютерное зрение", 
+        "nlp": "Обработка естественного языка",
+        "robotics": "Робототехника",
+        "products": "Разработка продуктов",
+        "data": "Анализ данных",
+        "research": "Исследования",
+        "startup": "Стартапы"
+    }
+    
+    interest_name = interest_mapping.get(interest_code, interest_code)
     
     data = await state.get_data()
     interests = data.get("interests", [])
     
-    if interest_key not in interests:
-        interests.append(interest_key)
+    # Добавляем интерес только если его еще нет
+    if interest_name not in interests:
+        interests.append(interest_name)
         await state.update_data(interests=interests)
+        
+        # Обновляем сообщение только если список изменился
+        interests_text = "Выбранные интересы:\n" + "\n".join(f"- {interest}" for interest in interests)
+        
+        await callback.message.edit_text(
+            f"{interests_text}\n\nВыберите еще или нажмите 'Готово':",
+            reply_markup=get_interests_keyboard()
+        )
     
-    interests_text = "Выбранные интересы:\n" + "\n".join(f"- {interest}" for interest in interests)
-    
-    await callback.message.edit_text(
-        f"{interests_text}\n\nВыберите еще или нажмите 'Готово':",
-        reply_markup=get_interests_keyboard()
-    )
     await callback.answer()
 
-@router.callback_query(F.data == "interests_done")
 async def interests_done(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "Отлично! Теперь выберите ваши цели:",
@@ -77,26 +103,55 @@ async def interests_done(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserStates.COLLECTING_GOALS)
     await callback.answer()
 
+@router.callback_query(F.data == "set_goals")
+async def set_goals(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "Выберите ваши цели (можно выбрать несколько):",
+        reply_markup=get_goals_keyboard()
+    )
+    await state.set_state(UserStates.COLLECTING_GOALS)
+    await callback.answer()
+
 @router.callback_query(F.data.startswith("goal_"))
 async def process_goal(callback: CallbackQuery, state: FSMContext):
-    goal_key = callback.data.replace("goal_", "").replace("_", " ").title()
+    goal_code = callback.data.replace("goal_", "")
+    
+    # Если это команда "goal_done", обрабатываем отдельно
+    if goal_code == "done":
+        await goals_done(callback, state)
+        return
+    
+    # Мапинг кодов на полные названия
+    goal_mapping = {
+        "career": "Карьера в IT",
+        "science": "Научная деятельность", 
+        "startup": "Создание стартапа",
+        "change": "Смена профессии",
+        "knowledge": "Углубить знания",
+        "diploma": "Получить диплом"
+    }
+    
+    goal_name = goal_mapping.get(goal_code, goal_code)
     
     data = await state.get_data()
     goals = data.get("goals", [])
     
-    if goal_key not in goals:
-        goals.append(goal_key)
+    # Добавляем цель только если ее еще нет
+    if goal_name not in goals:
+        goals.append(goal_name)
         await state.update_data(goals=goals)
+        
+        # Обновляем сообщение только если список изменился
+        goals_text = "Выбранные цели:\n" + "\n".join(f"- {goal}" for goal in goals)
+        
+        await callback.message.edit_text(
+            f"{goals_text}\n\nВыберите еще или нажмите 'Готово':",
+            reply_markup=get_goals_keyboard()
+        )
     
-    goals_text = "Выбранные цели:\n" + "\n".join(f"- {goal}" for goal in goals)
-    
-    await callback.message.edit_text(
-        f"{goals_text}\n\nВыберите еще или нажмите 'Готово':",
-        reply_markup=get_goals_keyboard()
-    )
     await callback.answer()
 
-@router.callback_query(F.data == "goals_done")
+@router.callback_query(F.data == "goal_done")
 async def goals_done(callback: CallbackQuery, state: FSMContext):
     user_id = str(callback.from_user.id)
     username = callback.from_user.username

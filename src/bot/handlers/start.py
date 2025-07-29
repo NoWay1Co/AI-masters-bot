@@ -143,6 +143,13 @@ async def view_profile_callback(callback: CallbackQuery):
     await callback.message.edit_text(profile_text, reply_markup=get_profile_setup_keyboard())
     await callback.answer()
 
+@router.message(UserStates.MAIN_MENU)
+async def main_menu_message(message: Message, state: FSMContext):
+    await message.answer(
+        "Я не понимаю это сообщение. Используйте кнопки для навигации.",
+        reply_markup=get_main_menu_keyboard()
+    )
+
 @router.message()
 async def unknown_message(message: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -153,7 +160,5 @@ async def unknown_message(message: Message, state: FSMContext):
             reply_markup=get_main_menu_keyboard()
         )
     else:
-        await message.answer(
-            "Я не понимаю это сообщение. Используйте кнопки для навигации.",
-            reply_markup=get_main_menu_keyboard()
-        ) 
+        # Для неизвестных состояний просто игнорируем
+        pass 

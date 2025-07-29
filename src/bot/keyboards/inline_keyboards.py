@@ -74,25 +74,25 @@ def get_interests_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
     interests = [
-        "Машинное обучение",
-        "Компьютерное зрение",
-        "Обработка естественного языка",
-        "Робототехника",
-        "Разработка продуктов",
-        "Анализ данных",
-        "Исследования",
-        "Стартапы"
+        ("Машинное обучение", "ml"),
+        ("Компьютерное зрение", "cv"),
+        ("NLP", "nlp"),
+        ("Робототехника", "robotics"),
+        ("Продукты", "products"),
+        ("Данные", "data"),
+        ("Исследования", "research"),
+        ("Стартапы", "startup")
     ]
     
-    for interest in interests:
+    for interest_text, interest_code in interests:
         builder.add(InlineKeyboardButton(
-            text=interest,
-            callback_data=f"interest_{interest.replace(' ', '_').lower()}"
+            text=interest_text,
+            callback_data=f"int_{interest_code}"
         ))
     
     builder.add(InlineKeyboardButton(
         text="Готово",
-        callback_data="interests_done"
+        callback_data="int_done"
     ))
     
     builder.adjust(2)
@@ -102,23 +102,23 @@ def get_goals_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
     goals = [
-        "Карьера в IT",
-        "Научная деятельность",
-        "Создание стартапа",
-        "Смена профессии",
-        "Углубить знания",
-        "Получить диплом"
+        ("Карьера в IT", "career"),
+        ("Наука", "science"),
+        ("Стартап", "startup"),
+        ("Смена профессии", "change"),
+        ("Углубить знания", "knowledge"),
+        ("Получить диплом", "diploma")
     ]
     
-    for goal in goals:
+    for goal_text, goal_code in goals:
         builder.add(InlineKeyboardButton(
-            text=goal,
-            callback_data=f"goal_{goal.replace(' ', '_').lower()}"
+            text=goal_text,
+            callback_data=f"goal_{goal_code}"
         ))
     
     builder.add(InlineKeyboardButton(
         text="Готово",
-        callback_data="goals_done"
+        callback_data="goal_done"
     ))
     
     builder.adjust(2)

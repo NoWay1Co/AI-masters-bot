@@ -1,56 +1,82 @@
 import asyncio
+import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from src.utils.logger import setup_logging, logger
-from src.utils.config import settings
-from src.services.llm_service import llm_service
-from src.bot.handlers import start, recommendations, qa, program_selection
-from src.bot.middlewares.logging_middleware import LoggingMiddleware
+from .utils.config import settings
+from .utils.logger import setup_logging, logger
+from .bot.handlers import start, program_selection, recommendations, qa
+from .bot.middlewares.logging_middleware import LoggingMiddleware
+from .services.llm_service import llm_service
+from .services.parser_service import ITMOParser
+from .data.json_storage import storage
 
-async def main():
-    setup_logging()
-    logger.info("Starting AI Masters Bot", version="1.0.0")
-    
-    if not settings.TELEGRAM_TOKEN:
-        logger.error("TELEGRAM_TOKEN is not set. Please check your .env file")
-        return
+async def on_startup():
+    logger.info("Bot starting up...")
     
     # Проверяем подключение к Ollama
-    logger.info("Checking Ollama connection...")
     ollama_available = await llm_service.check_connection()
-    if ollama_available:
-        logger.info("Ollama connection successful")
-    else:
-        logger.warning("Ollama connection failed - using fallback mode")
+    if not ollama_available:
+        logger.warning("Ollama not available, some features may not work")
     
-    # Создаем бота и диспетчер
+    # Парсим данные программ при старте
+    try:
+        parser = ITMOParser()
+        programs = await parser.parse_all_programs()
+        
+        if programs:
+            await storage.save_programs(programs)
+            logger.info("Programs data updated", count=len(programs))
+        else:
+            logger.warning("No programs data obtained")
+    
+    except Exception as e:
+        logger.error("Failed to parse programs on startup", error=str(e))
+    
+    logger.info("Bot startup completed")
+
+async def on_shutdown():
+    logger.info("Bot shutting down...")
+
+async def create_bot() -> Bot:
     bot = Bot(token=settings.TELEGRAM_TOKEN)
-    storage = MemoryStorage()
-    dp = Dispatcher(storage=storage)
+    return bot
+
+async def create_dispatcher() -> Dispatcher:
+    storage_fsm = MemoryStorage()
+    dp = Dispatcher(storage=storage_fsm)
     
-    # Подключаем middleware
+    # Добавляем middleware
     dp.message.middleware(LoggingMiddleware())
     dp.callback_query.middleware(LoggingMiddleware())
     
-    # Подключаем роутеры
-    dp.include_router(start.router)
+    # Регистрируем роутеры (порядок важен!)
+    dp.include_router(program_selection.router)
     dp.include_router(recommendations.router)
     dp.include_router(qa.router)
-    dp.include_router(program_selection.router)
+    dp.include_router(start.router)
     
-    logger.info("Bot configuration loaded", 
-                ollama_url=settings.OLLAMA_BASE_URL,
-                ollama_model=settings.OLLAMA_MODEL,
-                data_dir=str(settings.DATA_DIR))
+    # Регистрируем события
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+    
+    return dp
+
+async def main():
+    setup_logging()
+    
+    bot = await create_bot()
+    dp = await create_dispatcher()
+    
+    logger.info("Starting bot polling...")
     
     try:
-        logger.info("Bot started successfully")
         await dp.start_polling(bot)
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.error("Bot crashed", error=str(e))
+        raise
     finally:
         await bot.session.close()
 
