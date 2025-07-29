@@ -11,10 +11,6 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
         callback_data="select_program"
     ))
     builder.add(InlineKeyboardButton(
-        text="Сравнить программы",
-        callback_data="compare_programs"
-    ))
-    builder.add(InlineKeyboardButton(
         text="Получить рекомендации",
         callback_data="get_recommendations"
     ))
@@ -27,7 +23,7 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
         callback_data="view_profile"
     ))
     
-    builder.adjust(2, 2, 1)
+    builder.adjust(2, 2)
     return builder.as_markup()
 
 def get_programs_keyboard(programs: List[Program]) -> InlineKeyboardMarkup:
@@ -153,19 +149,15 @@ def get_courses_keyboard(courses: List[Course], page: int = 0, program_id: str =
     
     # Дополнительные кнопки
     builder.add(InlineKeyboardButton(
-        text="📥 Экспортировать программу",
-        callback_data=f"export_program_{program_id}"
-    ))
-    builder.add(InlineKeyboardButton(
-        text="Сравнить с другой программой",
-        callback_data="compare_programs"
+        text="📄 Скачать программу",
+        callback_data=f"download_program_{program_id}"
     ))
     builder.add(InlineKeyboardButton(
         text="Главное меню",
         callback_data="back_to_main"
     ))
     
-    builder.adjust(1, 2, 1, 1, 1)
+    builder.adjust(1, 2, 1, 1)
     return builder.as_markup()
 
 def get_export_keyboard() -> InlineKeyboardMarkup:
@@ -211,4 +203,22 @@ def get_menu_button_keyboard() -> InlineKeyboardMarkup:
         callback_data="back_to_main"
     ))
     
+    return builder.as_markup()
+
+def get_program_actions_keyboard(program_id: str = None) -> InlineKeyboardMarkup:
+    """Создает клавиатуру для действий с программой без показа курсов"""
+    builder = InlineKeyboardBuilder()
+    
+    if program_id:
+        builder.add(InlineKeyboardButton(
+            text="📄 Скачать программу",
+            callback_data=f"download_program_{program_id}"
+        ))
+    
+    builder.add(InlineKeyboardButton(
+        text="🏠 Главное меню",
+        callback_data="back_to_main"
+    ))
+    
+    builder.adjust(1)
     return builder.as_markup() 

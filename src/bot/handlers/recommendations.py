@@ -1,13 +1,13 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
 from ..states.user_states import UserStates
 from ..keyboards.inline_keyboards import (
     get_main_menu_keyboard, get_programs_keyboard, 
-    get_courses_keyboard, get_export_keyboard, get_profile_setup_keyboard,
-    get_menu_button_keyboard
+    get_export_keyboard, get_profile_setup_keyboard,
+    get_menu_button_keyboard, get_program_actions_keyboard
 )
 from ...services.recommendation_service import recommendation_service
 from ...data.json_storage import storage
@@ -281,18 +281,16 @@ async def show_program_details(callback: CallbackQuery, state: FSMContext):
 • Семестров: {max(semesters) if semesters else 4}
 
 🌐 **Официальная страница:** [Перейти на сайт]({program_url})
-
-📚 **Курсы программы:**
         """
         
         await callback.message.edit_text(
             program_text.strip(),
-            reply_markup=get_courses_keyboard(program.courses, page=0, program_id=program_id),
+            reply_markup=get_program_actions_keyboard(program_id),
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
         
-        await state.set_state(UserStates.VIEWING_COURSES)
+        await state.set_state(UserStates.VIEWING_PROGRAM)
         
     except Exception as e:
         logger.error("Failed to show program details", program_id=program_id, error=str(e))
@@ -303,12 +301,12 @@ async def show_program_details(callback: CallbackQuery, state: FSMContext):
     
     await callback.answer()
 
-@router.callback_query(F.data.startswith("courses_page_"))
-async def navigate_courses(callback: CallbackQuery, state: FSMContext):
+# Обработчик навигации по курсам удален - курсы больше не отображаются в UI
+
+@router.callback_query(F.data.startswith("download_program_"))
+async def download_program(callback: CallbackQuery, state: FSMContext):
     try:
-        parts = callback.data.split("_")
-        page = int(parts[2])
-        program_id = parts[3]
+        program_id = callback.data.replace("download_program_", "")
         
         programs = await storage.load_programs()
         program = next((p for p in programs if p.id == program_id), None)
@@ -317,142 +315,40 @@ async def navigate_courses(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Программа не найдена")
             return
         
-        await callback.message.edit_reply_markup(
-            reply_markup=get_courses_keyboard(program.courses, page=page, program_id=program_id)
-        )
+        # Определяем имя PDF файла на основе program_id
+        if program_id == "ai":
+            pdf_filename = "10033-abit-3.pdf"
+        elif program_id == "ai_product":
+            pdf_filename = "pdf.pdf"
+        else:
+            pdf_filename = "pdf.pdf"  # Fallback для других программ
         
-    except Exception as e:
-        logger.error("Failed to navigate courses", error=str(e))
-        await callback.answer("Ошибка навигации")
-    
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("export_program_"))
-async def export_program(callback: CallbackQuery, state: FSMContext):
-    try:
-        program_id = callback.data.replace("export_program_", "")
+        from ...utils.config import settings
+        pdf_path = settings.DATA_DIR / "files" / pdf_filename
         
-        programs = await storage.load_programs()
-        program = next((p for p in programs if p.id == program_id), None)
-        
-        if not program:
-            await callback.answer("Программа не найдена")
-            return
-        
-        # Формируем подробный экспорт программы
-        export_text = f"""
-📄 ПРОГРАММА ОБУЧЕНИЯ: {program.name.upper()}
-
-🎯 ОПИСАНИЕ ПРОГРАММЫ:
-{program.description}
-
-📊 ОБЩАЯ ИНФОРМАЦИЯ:
-• Официальная страница: {program.url}
-• Общее количество кредитов: {program.total_credits}
-• Продолжительность: {program.duration_semesters} семестров
-• Всего курсов: {len(program.courses)}
-• Обязательных курсов: {len([c for c in program.courses if not c.is_elective])}
-• Выборочных курсов: {len([c for c in program.courses if c.is_elective])}
-
-📚 УЧЕБНЫЙ ПЛАН:
-"""
-        
-        # Группируем курсы по семестрам
-        courses_by_semester = {}
-        for course in program.courses:
-            if course.semester not in courses_by_semester:
-                courses_by_semester[course.semester] = []
-            courses_by_semester[course.semester].append(course)
-        
-        for semester in sorted(courses_by_semester.keys()):
-            export_text += f"\nСЕМЕСТР {semester}:\n"
-            
-            mandatory = [c for c in courses_by_semester[semester] if not c.is_elective]
-            elective = [c for c in courses_by_semester[semester] if c.is_elective]
-            
-            if mandatory:
-                export_text += "\nОбязательные курсы:\n"
-                for course in mandatory:
-                    export_text += f"• {course.name} ({course.credits} кр.)\n"
-                    if course.description:
-                        export_text += f"  {course.description}\n"
-            
-            if elective:
-                export_text += "\nВыборочные курсы:\n"
-                for course in elective:
-                    export_text += f"• {course.name} ({course.credits} кр.)\n"
-                    if course.description:
-                        export_text += f"  {course.description}\n"
-        
-        export_text += f"\n\nДокумент создан: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
-        export_text += f"\nИсточник: AI Masters Bot ИТМО"
-        
-        # Отправляем как файл если текст слишком длинный
-        if len(export_text) > 4000:
-            from io import StringIO
-            file_content = StringIO(export_text)
-            
+        if pdf_path.exists():
+            document = FSInputFile(pdf_path, filename=pdf_filename)
             await callback.message.answer_document(
-                document=file_content,
-                filename=f"program_{program_id}_{datetime.now().strftime('%Y%m%d')}.txt",
-                caption=f"📥 Полная программа обучения: {program.name}",
+                document=document,
+                caption=f"📄 Учебный план программы: {program.name}",
                 reply_markup=get_menu_button_keyboard()
             )
         else:
             await callback.message.answer(
-                export_text,
+                "PDF файл не найден. Попробуйте позже или обратитесь в поддержку.",
                 reply_markup=get_menu_button_keyboard()
             )
         
     except Exception as e:
-        logger.error("Failed to export program", program_id=program_id, error=str(e))
-        await callback.message.answer("Ошибка при экспорте программы.")
-    
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("course_"))
-async def show_course_details(callback: CallbackQuery):
-    course_id = callback.data.replace("course_", "")
-    
-    try:
-        programs = await storage.load_programs()
-        course = None
-        
-        for program in programs:
-            course = next((c for c in program.courses if c.id == course_id), None)
-            if course:
-                break
-        
-        if not course:
-            await callback.answer("Курс не найден.")
-            return
-        
-        course_text = f"""
-📘 **{course.name}**
-
-📊 **Детали курса:**
-• Кредиты: {course.credits}
-• Семестр: {course.semester}
-• Тип: {"📚 Выборочная дисциплина" if course.is_elective else "✅ Обязательная дисциплина"}
-
-📝 **Описание:**
-{course.description or 'Описание недоступно'}
-
-🔗 **Пререквизиты:** 
-{', '.join(course.prerequisites) if course.prerequisites else 'Отсутствуют'}
-        """
-        
+        logger.error("Failed to download program", program_id=program_id, error=str(e))
         await callback.message.answer(
-            course_text,
-            reply_markup=get_menu_button_keyboard(),
-            parse_mode="Markdown"
+            "Ошибка при скачивании программы. Попробуйте позже или обратитесь в поддержку.",
+            reply_markup=get_menu_button_keyboard()
         )
-        
-    except Exception as e:
-        logger.error("Failed to show course details", course_id=course_id, error=str(e))
-        await callback.answer("Ошибка при загрузке информации о курсе.")
     
     await callback.answer()
+
+# Обработчик деталей курсов удален - курсы больше не отображаются в UI
 
 @router.callback_query(F.data == "export_courses")
 async def export_courses(callback: CallbackQuery, state: FSMContext):

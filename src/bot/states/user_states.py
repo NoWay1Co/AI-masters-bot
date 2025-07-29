@@ -15,7 +15,8 @@ class UserStates(StatesGroup):
     
     # Рекомендации
     GETTING_RECOMMENDATIONS = State()
-    VIEWING_COURSES = State()
+    VIEWING_PROGRAM = State()
+    VIEWING_COURSES = State()  # Оставлено для совместимости, но не используется в UI
     
     # Q&A режим
     QA_MODE = State()

@@ -110,10 +110,20 @@ async def reset_command(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        "Главное меню",
-        reply_markup=get_main_menu_keyboard()
-    )
+    try:
+        # Пытаемся отредактировать сообщение (работает для текстовых сообщений)
+        await callback.message.edit_text(
+            "Главное меню",
+            reply_markup=get_main_menu_keyboard()
+        )
+    except Exception:
+        # Если не получается отредактировать (например, сообщение с файлом),
+        # отправляем новое сообщение
+        await callback.message.answer(
+            "Главное меню",
+            reply_markup=get_main_menu_keyboard()
+        )
+    
     await state.set_state(UserStates.MAIN_MENU)
     await callback.answer()
 

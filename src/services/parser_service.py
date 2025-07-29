@@ -286,7 +286,7 @@ class ITMOParser:
         # Парсим учебный план
         courses = []
         if curriculum_url:
-            courses = await self._parse_curriculum_file(curriculum_url)
+            courses = await self._parse_curriculum_file(curriculum_url, program_type)
         
         # Если курсы не найдены через URL, пробуем локальные файлы
         if not courses:
@@ -335,27 +335,29 @@ class ITMOParser:
         return None
     
     async def _extract_program_details(self, soup: BeautifulSoup) -> Optional[ProgramDetails]:
-        """Извлекает всю дополнительную информацию со страницы программы"""
+        """Извлекает детали программы с очисткой и структурированием данных"""
         details = ProgramDetails()
         
-        # Ищем информацию в различных форматах
+        # Получаем весь текст страницы для анализа
+        page_text = soup.get_text()
+        
         try:
             # Поиск в JSON данных страницы
             next_data_script = soup.find('script', {'id': '__NEXT_DATA__'})
             if next_data_script and next_data_script.string:
                 data = json.loads(next_data_script.string)
-                self._extract_details_from_json(data, details)
+                self._extract_details_from_json_clean(data, details)
             
-            # Поиск в HTML структуре
-            self._extract_details_from_html(soup, details)
+            # Дополнительное извлечение из HTML с регулярными выражениями
+            self._extract_details_from_html_clean(soup, page_text, details)
             
         except Exception as e:
             logger.debug("Failed to extract program details", error=str(e))
         
         return details if any(vars(details).values()) else None
     
-    def _extract_details_from_json(self, data: dict, details: ProgramDetails):
-        """Извлекает детали из JSON данных страницы"""
+    def _extract_details_from_json_clean(self, data: dict, details: ProgramDetails):
+        """Извлекает детали из JSON данных с очисткой значений"""
         def find_value(obj, keys):
             if isinstance(obj, dict):
                 for key, value in obj.items():
@@ -372,53 +374,392 @@ class ITMOParser:
                         return result
             return None
         
-        # Поиск различных полей
-        details.form_of_study = find_value(data, ['form_of_study', 'форма обучения', 'form'])
-        details.duration = find_value(data, ['duration', 'длительность', 'period'])
-        details.language = find_value(data, ['language', 'язык', 'languages'])
-        details.cost_per_year = find_value(data, ['cost', 'стоимость', 'price', 'tuition'])
-        details.dormitory = find_value(data, ['dormitory', 'общежитие', 'housing'])
-        details.military_center = find_value(data, ['military', 'военный', 'military_center'])
-        details.accreditation = find_value(data, ['accreditation', 'аккредитация'])
-        details.about_program = find_value(data, ['about', 'о программе', 'description'])
-        details.partners = find_value(data, ['partners', 'партнеры', 'partner'])
-        details.scholarships = find_value(data, ['scholarships', 'стипендии', 'scholarship'])
-    
-    def _extract_details_from_html(self, soup: BeautifulSoup, details: ProgramDetails):
-        """Извлекает детали из HTML структуры"""
-        # Поиск по тексту и структуре
-        text_content = soup.get_text()
+        # Поиск различных полей с последующей очисткой
+        raw_form = find_value(data, ['form_of_study', 'форма обучения', 'form'])
+        raw_duration = find_value(data, ['duration', 'длительность', 'period'])
+        raw_language = find_value(data, ['language', 'язык', 'languages'])
+        raw_cost = find_value(data, ['cost', 'стоимость', 'price', 'tuition'])
+        raw_dormitory = find_value(data, ['dormitory', 'общежитие', 'housing'])
+        raw_military = find_value(data, ['military', 'военный', 'military_center'])
+        raw_accreditation = find_value(data, ['accreditation', 'аккредитация'])
+        raw_about = find_value(data, ['about', 'о программе', 'description'])
+        raw_manager = find_value(data, ['program_manager', 'менеджер программы', 'manager'])
+        raw_additional = find_value(data, ['additional_opportunities', 'дополнительные возможности', 'opportunities'])
+        raw_directions = find_value(data, ['study_directions', 'направления подготовки', 'directions'])
         
-        # Паттерны для поиска информации
+        # Очищаем найденные значения
+        if raw_form:
+            details.form_of_study = self._clean_form_of_study(raw_form)
+        if raw_duration:
+            details.duration = self._clean_duration(raw_duration)
+        if raw_language:
+            details.language = self._clean_language(raw_language)
+        if raw_cost:
+            details.cost_per_year = self._clean_cost(raw_cost)
+        if raw_dormitory:
+            details.dormitory = self._clean_yes_no_field(raw_dormitory)
+        if raw_military:
+            details.military_center = self._clean_yes_no_field(raw_military)
+        if raw_accreditation:
+            details.accreditation = self._clean_yes_no_field(raw_accreditation)
+        if raw_about:
+            details.about_program = self._clean_about_program(raw_about)
+        if raw_manager:
+            manager_name, manager_contacts = self._clean_program_manager(raw_manager)
+            details.program_manager = manager_name
+            details.manager_contacts = manager_contacts
+        if raw_additional:
+            details.additional_opportunities = self._clean_additional_opportunities(raw_additional)
+        if raw_directions:
+            details.study_directions = self._clean_study_directions(raw_directions)
+    
+    def _extract_details_from_html_clean(self, soup: BeautifulSoup, page_text: str, details: ProgramDetails):
+        """Извлекает детали из HTML текста с использованием регулярных выражений"""
+        
+        # Паттерны для извлечения информации
         patterns = {
-            'form_of_study': [r'форма\s+обучения[:\s]*([^\n\r]+)', r'очная|заочная|очно-заочная'],
-            'duration': [r'длительность[:\s]*([^\n\r]+)', r'(\d+)\s*года?\s*(\d+)?\s*месяц'],
-            'language': [r'язык\s+обучения[:\s]*([^\n\r]+)', r'русский|английский'],
-            'cost_per_year': [r'стоимость[:\s]*([^\n\r]+)', r'(\d+[\s\d]*)\s*рубл'],
-            'dormitory': [r'общежитие[:\s]*([^\n\r]+)'],
-            'military_center': [r'военный\s+учебный\s+центр[:\s]*([^\n\r]+)'],
-            'accreditation': [r'аккредитация[:\s]*([^\n\r]+)'],
+            'form_of_study': [
+                r'форма\s+обучения[:\s]*([^\n\r]+?)(?:длительность|язык|стоимость|$)',
+                r'(очная|заочная|очно-заочная)',
+            ],
+            'duration': [
+                r'длительность[:\s]*([^\n\r]+?)(?:язык|стоимость|общежитие|$)',
+                r'(\d+)\s*года?\b',
+            ],
+            'language': [
+                r'язык\s+обучения[:\s]*([^\n\r]+?)(?:стоимость|общежитие|военный|$)',
+                r'(русский|английский)',
+            ],
+            'cost_per_year': [
+                r'стоимость\s+контрактного\s+обучения[:\s]*\([^)]*\)[:\s]*([^\n\r]+?)(?:общежитие|военный|гос|$)',
+                r'(\d+[\s\d]*)\s*₽',
+            ],
+            'dormitory': [
+                r'общежитие[:\s]*([^\n\r]+?)(?:военный|гос|дополнительные|$)',
+                r'общежитие[:\s]*(да|нет)',
+            ],
+            'military_center': [
+                r'военный\s+учебный\s+центр[:\s]*([^\n\r]+?)(?:гос|дополнительные|менеджер|$)',
+                r'военный[:\s]*(да|нет)',
+            ],
+            'accreditation': [
+                r'гос\.\s*аккредитация[:\s]*([^\n\r]+?)(?:дополнительные|менеджер|программа|$)',
+                r'аккредитация[:\s]*(да|нет)',
+            ],
         }
         
+        # Применяем паттерны только если поля еще не заполнены
         for field, field_patterns in patterns.items():
-            for pattern in field_patterns:
-                match = re.search(pattern, text_content, re.I | re.MULTILINE)
-                if match:
-                    value = match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
-                    setattr(details, field, value.strip())
-                    break
+            current_value = getattr(details, field)
+            if not current_value:  # Заполняем только пустые поля
+                for pattern in field_patterns:
+                    match = re.search(pattern, page_text, re.I | re.MULTILINE)
+                    if match:
+                        value = match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
+                        cleaned_value = self._clean_field_value(field, value.strip())
+                        if cleaned_value:
+                            setattr(details, field, cleaned_value)
+                            break
         
         # Поиск менеджера программы
-        manager_elements = soup.find_all(string=re.compile(r'менеджер\s+программы', re.I))
-        for elem in manager_elements:
-            parent = elem.parent
-            if parent:
-                siblings = parent.find_next_siblings()
-                for sibling in siblings:
-                    text = sibling.get_text(strip=True)
-                    if text and len(text) > 5:
-                        details.program_manager = text
+        if not details.program_manager:
+            manager_patterns = [
+                r'менеджер\s+программы[:\s]*([^@\n\r]+)[@]',
+                r'менеджер\s+программы[:\s]*([A-ZА-Я][a-zа-я]+\s+[A-ZА-Я][a-zа-я]+\s+[A-ZА-Я][a-zа-я]+)',
+            ]
+            
+            for pattern in manager_patterns:
+                match = re.search(pattern, page_text, re.I | re.MULTILINE)
+                if match:
+                    manager_name, manager_contacts = self._clean_program_manager(match.group(1))
+                    details.program_manager = manager_name
+                    if manager_contacts:
+                        details.manager_contacts = manager_contacts
+                    break
+        
+        # Поиск описания программы
+        if not details.about_program:
+            # Ищем в HTML структуре по id="about"
+            about_header = soup.find('h2', {'id': 'about'})
+            if about_header:
+                # Собираем весь текст из блока "О программе"
+                about_content = []
+                
+                # Ищем все элементы после заголовка до следующего h2, h3 или определенных секций
+                current_elem = about_header.find_next_sibling()
+                while current_elem:
+                    # Останавливаемся на следующих заголовках или секциях
+                    if (current_elem.name in ['h1', 'h2', 'h3'] or 
+                        (current_elem.get_text(strip=True).upper() in ['КАРЬЕРА', 'ПАРТНЕРЫ ПРОГРАММЫ', 'КОМАНДА ОБРАЗОВАТЕЛЬНОЙ ПРОГРАММЫ', 'УЧЕБНЫЙ ПЛАН'])):
                         break
+                    
+                    # Получаем текст из текущего элемента
+                    text = current_elem.get_text(strip=True)
+                    if text and len(text) > 10:  # Только содержательный текст
+                        about_content.append(text)
+                    
+                    current_elem = current_elem.find_next_sibling()
+                
+                # Также ищем вложенные элементы в div/section после заголовка
+                about_section = about_header.find_next(['div', 'section'])
+                if about_section and not about_content:
+                    # Ищем все текстовые элементы внутри секции
+                    text_elements = about_section.find_all(['p', 'div', 'span'], text=True)
+                    for elem in text_elements:
+                        text = elem.get_text(strip=True)
+                        if text and len(text) > 20:
+                            about_content.append(text)
+                
+                # Объединяем найденный контент
+                if about_content:
+                    full_text = ' '.join(about_content)
+                    details.about_program = self._clean_about_program(full_text)
+            
+            # Если HTML парсинг не сработал, используем регулярные выражения как fallback
+            if not details.about_program:
+                about_patterns = [
+                    r'о\s+программе[:\s]*([^карьера]{100,}?)(?:карьера|ты\s+сможешь|выпускники|показать\s+все|партнеры|команда|учебный\s+план)',
+                    r'создавайте\s+[^\.]*\.\s*([^карьера]{100,}?)(?:карьера|показать\s+все)',
+                ]
+                
+                for pattern in about_patterns:
+                    match = re.search(pattern, page_text, re.I | re.MULTILINE | re.DOTALL)
+                    if match:
+                        details.about_program = self._clean_about_program(match.group(1))
+                        break
+        
+
+        
+        # Поиск дополнительных возможностей
+        if not details.additional_opportunities:
+            additional_patterns = [
+                r'дополнительные\s+возможности[:\s]*([^менеджер]+?)(?:менеджер|программа|$)',
+                r'дополнительные\s+возможности[:\s]*([^\.]+\.)',
+            ]
+            
+            for pattern in additional_patterns:
+                match = re.search(pattern, page_text, re.I | re.MULTILINE)
+                if match:
+                    details.additional_opportunities = self._clean_additional_opportunities(match.group(1))
+                    break
+        
+        # Поиск направлений подготовки
+        if not details.study_directions:
+            directions_patterns = [
+                r'направления\s+подготовки[:\s]*([^о\s]+?)(?:о\s+программе|$)',
+                r'направления\s+подготовки[:\s]*([^\.]+\.)',
+            ]
+            
+            for pattern in directions_patterns:
+                match = re.search(pattern, page_text, re.I | re.MULTILINE)
+                if match:
+                    details.study_directions = self._clean_study_directions(match.group(1))
+                    break
+        
+
+        
+
+    
+    def _clean_field_value(self, field: str, value: str) -> str:
+        """Очищает значение поля в зависимости от его типа"""
+        if field == 'form_of_study':
+            return self._clean_form_of_study(value)
+        elif field == 'duration':
+            return self._clean_duration(value)
+        elif field == 'language':
+            return self._clean_language(value)
+        elif field == 'cost_per_year':
+            return self._clean_cost(value)
+        elif field in ['dormitory', 'military_center', 'accreditation']:
+            return self._clean_yes_no_field(value)
+        else:
+            return value.strip()
+    
+    def _clean_form_of_study(self, value: str) -> str:
+        """Очищает поле 'форма обучения'"""
+        value_lower = value.lower()
+        if 'очная' in value_lower:
+            return 'очная'
+        elif 'заочная' in value_lower:
+            return 'заочная'
+        elif 'очно-заочная' in value_lower:
+            return 'очно-заочная'
+        return value.strip()
+    
+    def _clean_duration(self, value: str) -> str:
+        """Очищает поле 'длительность'"""
+        # Ищем паттерн "2 года"
+        match = re.search(r'(\d+)\s*года?', value, re.I)
+        if match:
+            return f"{match.group(1)} года"
+        
+        # Если просто число
+        match = re.search(r'^(\d+)$', value.strip())
+        if match:
+            return f"{match.group(1)} года"
+            
+        return value.strip()
+    
+    def _clean_language(self, value: str) -> str:
+        """Очищает поле 'язык обучения'"""
+        value_lower = value.lower()
+        languages = []
+        if 'русский' in value_lower:
+            languages.append('русский')
+        if 'английский' in value_lower:
+            languages.append('английский')
+        
+        if languages:
+            return ', '.join(languages)
+        return value.strip()
+    
+    def _clean_cost(self, value: str) -> str:
+        """Очищает поле 'стоимость'"""
+        # Ищем паттерн с числом и рублями
+        match = re.search(r'(\d+[\s\d]*)\s*(?:₽|рубл)', value, re.I)
+        if match:
+            cost = match.group(1).replace(' ', ' ')  # Нормализуем пробелы
+            return f"{cost} ₽"
+        return value.strip()
+    
+    def _clean_yes_no_field(self, value: str) -> str:
+        """Очищает поля типа да/нет"""
+        value_lower = value.lower().strip()
+        if value_lower.startswith('да') or 'да' in value_lower[:5]:
+            return 'да'
+        elif value_lower.startswith('нет') or 'нет' in value_lower[:5]:
+            return 'нет'
+        return value.strip()
+    
+    def _clean_program_manager(self, value: str) -> tuple[str, str]:
+        """Разделяет менеджера программы на имя и контакты"""
+        # Ищем полное имя в русском формате
+        name_patterns = [
+            r'([А-Я][а-я]+\s+[А-Я][а-я]+\s+[А-Я][а-я]+)',
+            r'менеджер\s+программы[:\s]*([А-Я][а-я]+\s+[А-Я][а-я]+\s+[А-Я][а-я]+)',
+        ]
+        
+        name = ""
+        for pattern in name_patterns:
+            match = re.search(pattern, value)
+            if match:
+                name = match.group(1).strip()
+                break
+        
+        # Ищем контакты (email и телефон)
+        contacts = []
+        
+        # Поиск email
+        email_match = re.search(r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', value)
+        if email_match:
+            contacts.append(email_match.group(1))
+        
+        # Поиск телефона
+        phone_patterns = [
+            r'(\+7\s*\(\d{3}\)\s*\d{3}-\d{2}-\d{2})',
+            r'(\+7\s*\d{3}\s*\d{3}-\d{2}-\d{2})',
+        ]
+        
+        for pattern in phone_patterns:
+            phone_match = re.search(pattern, value)
+            if phone_match:
+                contacts.append(phone_match.group(1))
+                break
+        
+        return name, ', '.join(contacts) if contacts else ""
+    
+    def _clean_about_program(self, value: str) -> str:
+        """Очищает описание программы - берет полный текст из блока О ПРОГРАММЕ"""
+        if not value:
+            return ""
+            
+        # Удаляем лишние пробелы и переносы
+        cleaned = re.sub(r'\s+', ' ', value).strip()
+        
+        # Убираем технические элементы и навигационные части
+        cleaned = re.sub(r'показать\s+все.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'партнеры\s+программы.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'команда\s+образовательной.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'учебный\s+план.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'карьера.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'вступительные\s+экзамены.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'как\s+поступить.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'ты\s+сможешь\s+работать.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'выпускники\s+программы.*$', '', cleaned, flags=re.I)
+        
+        # Убираем повторяющиеся фразы и служебные элементы
+        cleaned = re.sub(r'подробнее\s*', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'смотреть\s+вакансии\s*', '', cleaned, flags=re.I)
+        
+        # Очищаем и возвращаем текст
+        cleaned = cleaned.strip()
+        
+        # Если текст слишком длинный, обрезаем до разумного размера
+        if len(cleaned) > 1000:
+            # Обрезаем до последнего полного предложения в пределах 1000 символов
+            truncated = cleaned[:1000]
+            last_dot = truncated.rfind('.')
+            if last_dot > 500:  # Если есть предложение достаточной длины
+                cleaned = truncated[:last_dot + 1]
+            else:
+                cleaned = truncated + '...'
+        
+        return cleaned
+    
+    def _clean_additional_opportunities(self, value: str) -> str:
+        """Очищает поле дополнительных возможностей"""
+        cleaned = re.sub(r'\s+', ' ', value).strip()
+        
+        # Убираем лишние части
+        cleaned = re.sub(r'менеджер\s+программы.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'программа в сфере ии.*$', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'даты вступительного.*$', '', cleaned, flags=re.I)
+        
+        # Ищем конкретные возможности в правильном порядке
+        opportunities = []
+        if 'онлайн' in cleaned.lower():
+            opportunities.append('Онлайн')
+        if 'трек аспирантуры' in cleaned.lower():
+            opportunities.append('Трек аспирантуры')
+        if 'пиш' in cleaned.lower():
+            opportunities.append('ПИШ')
+        if 'соп' in cleaned.lower():
+            opportunities.append('СОП')
+        
+        if opportunities:
+            return ', '.join(opportunities)
+        
+        # Если ничего конкретного не найдено, но есть текст
+        if len(cleaned) > 10:
+            return cleaned[:50] + '...' if len(cleaned) > 50 else cleaned
+        
+        return ""
+    
+    def _clean_study_directions(self, value: str) -> str:
+        """Очищает направления подготовки"""
+        cleaned = re.sub(r'\s+', ' ', value).strip()
+        
+        # Ищем полные коды направлений с названиями
+        direction_patterns = [
+            r'(\d{2}\.\d{2}\.\d{2}\s*[А-Я][^0-9]{20,}?)(?=\d{2}\.\d{2}|\d+бюджетных|$)',
+            r'(\d{2}\.\d{2}\.\d{2}[^0-9]+?)(?=\d+бюджетных|$)',
+        ]
+        
+        directions = []
+        for pattern in direction_patterns:
+            matches = re.findall(pattern, cleaned)
+            for match in matches:
+                direction = re.sub(r'\s+', ' ', match).strip()
+                # Убираем числа в конце (количество мест)
+                direction = re.sub(r'\d+бюджетных.*$', '', direction).strip()
+                if direction and len(direction) > 15:
+                    directions.append(direction)
+        
+        if directions:
+            return '; '.join(directions[:2])  # Максимум 2 направления
+        
+        return cleaned.strip()
+
     
     async def _find_curriculum_link(self, soup: BeautifulSoup, base_url: str) -> Optional[str]:
         """
@@ -514,7 +855,7 @@ class ITMOParser:
         logger.warning("No curriculum link found")
         return None
     
-    async def _parse_curriculum_file(self, file_url: str) -> List[Course]:
+    async def _parse_curriculum_file(self, file_url: str, program_type: ProgramType) -> List[Course]:
         cache_key = f"curriculum_{file_url}"
         
         # Проверяем кэш
@@ -532,7 +873,7 @@ class ITMOParser:
             file_extension = self._get_file_extension(file_url)
             
             # Сохраняем файл локально для будущего использования
-            await self._save_curriculum_file(file_url, file_content, file_extension)
+            await self._save_curriculum_file(file_url, file_content, file_extension, program_type)
             
             courses = []
             if file_extension == '.pdf':
@@ -555,12 +896,16 @@ class ITMOParser:
             logger.error("Failed to parse curriculum file", file_url=file_url, error=str(e))
             return []
     
-    async def _save_curriculum_file(self, file_url: str, content: bytes, extension: str) -> str:
+    async def _save_curriculum_file(self, file_url: str, content: bytes, extension: str, program_type: ProgramType) -> str:
         """Сохраняет скачанный файл учебного плана в data/files"""
         try:
-            # Создаем имя файла на основе URL
-            parsed_url = urlparse(file_url)
-            filename = parsed_url.path.split('/')[-1] or f"curriculum_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # Создаем имя файла на основе типа программы
+            filename_mapping = {
+                ProgramType.AI: "10033-abit-3.pdf",
+                ProgramType.AI_PRODUCT: "pdf.pdf"
+            }
+            
+            filename = filename_mapping.get(program_type, f"curriculum_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
             
             if not filename.endswith(extension):
                 filename += extension

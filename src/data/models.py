@@ -33,9 +33,6 @@ class ProgramDetails(BaseModel):
     manager_contacts: Optional[str] = None  # Контакты менеджера
     study_directions: Optional[str] = None  # Направления подготовки
     about_program: Optional[str] = None  # О программе
-    partners: Optional[str] = None  # Партнеры программы
-    team: Optional[str] = None  # Команда образовательной программы
-    scholarships: Optional[str] = None  # Стипендии
 
 class Program(BaseModel):
     id: str
